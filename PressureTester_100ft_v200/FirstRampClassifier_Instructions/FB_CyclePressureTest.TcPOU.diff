@@ -1,0 +1,2210 @@
+--- PressureTester - 100ft Single v100/test/FrontSide/POUs/POUs/FB_CyclePressureTest.TcPOU
++++ PressureTester - 100ft Single v100/test/FrontSide/POUs/POUs/FB_CyclePressureTest.TcPOU
+@@ -1,1096 +1,1112 @@
+-<?xml version="1.0" encoding="utf-8"?>
+-<TcPlcObject Version="1.1.0.1" ProductVersion="3.1.4024.12">
+-  <POU Name="FB_CyclePressureTest" Id="{db588b73-cb4a-41e5-96c5-dec022dbccf4}" SpecialFunc="None">
+-    <Declaration><![CDATA[FUNCTION_BLOCK FB_CyclePressureTest
+-VAR_INPUT
+-	Execute					: BOOL;
+-	Abort					: BOOL;
+-	PressureA				: LREAL;
+-	PressureB				: LREAL;
+-	HighPressureLow			: LREAL;
+-	HighPressureHigh		: LREAL;
+-	LowPressureLow			: LREAL;
+-	LowPressureHigh			: LREAL;
+-	TargetCycleCount		: UINT;
+-	CycleVariation			: UINT;
+-	HoldTime				: TIME;
+-	ValveOpenDetected		: BOOL;
+-	ValveOpeningCheckActive : BOOL := FALSE;
+-	EnableLegacyValveOpeningDetection : BOOL := FALSE;
+-	ValveOpenRateIncrease 	: LREAL := 300.0;
+-	AirOK					: BOOL;
+-	LowPressureTarget		: LREAL;
+-	SystemPressure			: LREAL;
+-	EnableBleedValveA		: BOOL;
+-	EnableBleedValveB		: BOOL;
+-	PortA_Active			: BOOL;
+-	PortB_Active			: BOOL;
+-	ValveOpeningCandidateRejected : BOOL := FALSE;
+-END_VAR
+-
+-
+-VAR_OUTPUT
+-	Busy					: BOOL;
+-	Done					: BOOL;
+-	Passed					: BOOL;
+-	Failed					: BOOL;
+-	Error					: BOOL;
+-	ErrorID					: UINT;
+-	FailureReason			: STRING(255);
+-	CycleCount				: UINT;
+-	MinPassingCycle			: UINT;
+-	MaxPassingCycle			: UINT;
+-	Pump					: BOOL;
+-	DumpValveA				: BOOL;
+-	DumpValveB				: BOOL;
+-	BleedValveA				: BOOL;
+-	BleedValveB				: BOOL;
+-	BlockValveA				: BOOL;
+-	BlockValveB				: BOOL;
+-	HighPressureReached		: BOOL;
+-	LowPressureReached		: BOOL;
+-	DesiredPressure			: LREAL;
+-	InitialShearDetected	: BOOL;
+-	ShearPressure			: LREAL;
+-	ShearTime				: TIME;
+-	TimeRemaining			: TIME;
+-	State					: INT;
+-END_VAR
+-
+-
+-VAR
+-	tHold					: TON;
+-	tDebounce				: TON;
+-	fbBleedToPressure 		: FB_BleedToPressure;
+-	ShearPeakPressure		: LREAL;
+-	ShearCurrentDrop		: LREAL;
+-	ShearDropThreshold		: LREAL := 100.0;
+-	ShearDropConfirmTime	: TIME := T#100MS;
+-	tShearElapsed			: TON;
+-	tShearConfirm			: TON;
+-	ShearMonitoringActive	: BOOL;
+-	BleedControlPressure	: LREAL;
+-	BleedHoldElapsed		: TIME;
+-	BleedHoldRemaining		: TIME;
+-	BleedPressureRate			: LREAL;
+-	BleedPredictedCoastDrop		: LREAL;
+-	BleedDynamicClosePressure	: LREAL;
+-	BleedActualCoastDrop		: LREAL;
+-	BleedPredictionError		: LREAL;
+-	BleedPulseTime				: TIME;
+-	BleedPulseEffect			: LREAL;
+-	BleedRateBaseline			: LREAL;
+-	BleedRateIncrease			: LREAL;
+-
+-	ValveOpenBleedCandidate		: BOOL;
+-	ValveOpenDuringBleed		: BOOL;
+-	BleedBaselineValid			: BOOL;
+-	BleedBaselineSampleCount	: UINT;
+-	BleedBaselineAlpha			: LREAL := 0.10;
+-	tValveOpenBleedConfirm		: TON;
+-	ValveOpenConfirmTime		: TIME := T#100MS;
+-	LowRangeFaultPending 		: BOOL;
+-	tLowRangeGrace 				: TON;
+-	tLowRangeDecision 			: TON;
+-END_VAR]]></Declaration>
+-    <Implementation>
+-      <ST><![CDATA[//**************************************************************
+-// FB_CyclePressureTest
+-//
+-// One cycle:
+-// Pressurize High & Monitor for Shear
+-//      ↓
+-// Hold High
+-//      ↓
+-// Bleed to Low
+-//      ↓
+-// Hold Low
+-//      ↓
+-// Increment CycleCount
+-//      ↓
+-// Repeat or Pass/Fail
+-//**************************************************************
+-
+-// Remember a low-range violation until classified.
+-// Recovery alone does not erase the violation.
+-IF Execute AND NOT Abort AND (State = 60) THEN
+-    IF SystemPressure < LowPressureLow THEN
+-        LowRangeFaultPending := TRUE;
+-    END_IF;
+-ELSE
+-    LowRangeFaultPending := FALSE;
+-END_IF;
+-
+-// Allow time for the detector to raise a candidate.
+-tLowRangeGrace(
+-    IN := LowRangeFaultPending
+-        AND NOT ValveOpeningCheckActive
+-        AND NOT ValveOpenDetected,
+-    PT := T#500MS
+-);
+-
+-// Bound the entire decision, including verification.
+-tLowRangeDecision(
+-    IN := LowRangeFaultPending,
+-    PT := T#3S
+-);
+-
+-//******************
+-// Abort
+-//******************
+-IF Abort THEN
+-	Pump := FALSE;
+-	DumpValveA := FALSE;
+-	DumpValveB := FALSE;
+-	BleedValveA := FALSE;
+-	BleedValveB := FALSE;
+-	BlockValveA := FALSE;
+-	BlockValveB := FALSE;
+-	tHold(
+-		IN := FALSE,
+-		PT := HoldTime);
+-	Busy := FALSE;
+-	Done := FALSE;
+-	Passed := FALSE;
+-	Failed := FALSE;
+-	State := 0;
+-	RETURN;
+-END_IF
+-
+-
+-//******************
+-// Reset FB
+-//******************
+-IF NOT Execute THEN
+-	Pump := FALSE;
+-	DumpValveA := FALSE;
+-	DumpValveB := FALSE;
+-	BleedValveA := FALSE;
+-	BleedValveB := FALSE;
+-	BlockValveA := FALSE;
+-	BlockValveB := FALSE;
+-	tHold(
+-		IN := FALSE,
+-		PT := HoldTime);
+-	Busy := FALSE;
+-	Done := FALSE;
+-	Passed := FALSE;
+-	Failed := FALSE;
+-	Error := FALSE;
+-	ErrorID := 0;
+-	FailureReason := '';
+-	CycleCount := 0;
+-	HighPressureReached := FALSE;
+-	LowPressureReached := FALSE;
+-	State := 0;
+-	RETURN;
+-END_IF
+-
+-//******************
+-// Function Block Calls
+-//******************
+-
+-//******************
+-// Controlled Bleed To Low Pressure
+-//******************
+-//EnableBleedValveA := EnableBleedValveA,
+-//EnableBleedValveB := EnableBleedValveB,
+-fbBleedToPressure(Execute := Execute AND (State = 50) AND NOT ValveOpeningCheckActive,
+-	Abort := Abort,
+-	SystemPressure := SystemPressure,
+-	TargetPressure := LowPressureTarget,
+-	PressureTolerance := 25.0,
+-	// A only or Both: use A. B only: use B.
+-	EnableBleedValveA := PortA_Active,
+-	EnableBleedValveB := PortB_Active AND NOT PortA_Active,
+-	//Dynamic rate prediction
+-	RateSampleTime := T#100MS,
+-	RateSampleSeconds := 0.10,
+-	RateFilterAlpha := 0.50,
+-	CoastTimeSeconds := 0.80,
+-	MinPredictedCoastDrop := 5.0,
+-	MaxPredictedCoastDrop := 200.0,
+-	MaxBleedRate := 1000.0,
+-	//Final acceptance
+-	FinalRateLimit := 20.0,
+-	FinalConfirmTime := T#1S, //T#300MS
+-	PreferredTargetOffset := 5.0,
+-	//Fine bleed
+-	CoarsePulseTime := T#100MS,
+-	FinePulseTime := T#50MS,
+-	VeryFinePulseTime := T#25MS,
+-	CoarsePulseThreshold := 100.0,
+-	FinePulseThreshold := 40.0,
+-	MinPulseTime := T#25MS,
+-	MaxPulseTime := T#150MS,
+-	SettleTime := T#2S, //T#500MS
+-	Timeout := T#5M,
+-);
+-
+-TimeRemaining := HoldTime -  tHold.ET;
+-//******************
+-// Main State Machine
+-//******************
+-CASE State OF
+-
+-//******************
+-// Initialize
+-//******************
+-0:
+-	Busy := TRUE;
+-	Done := FALSE;
+-	Passed := FALSE;
+-	Failed := FALSE;
+-	Error := FALSE;
+-	ErrorID := 0;
+-	FailureReason := '';
+-	CycleCount := 0;
+-	HighPressureReached := FALSE;
+-	LowPressureReached := FALSE;
+-	InitialShearDetected := FALSE;
+-	ShearPressure := 0.0;
+-	ShearTime := T#0S;
+-	ShearPeakPressure := 0.0;
+-	ShearCurrentDrop := 0.0;
+-	BleedRateBaseline := 0.0;
+-	BleedRateIncrease := 0.0;
+-	ValveOpenBleedCandidate := FALSE;
+-	ValveOpenDuringBleed := FALSE;
+-	BleedBaselineValid := FALSE;
+-	BleedBaselineSampleCount := 0;
+-	
+-	IF TargetCycleCount > CycleVariation THEN
+-		MinPassingCycle :=TargetCycleCount - CycleVariation;
+-	ELSE
+-		MinPassingCycle := 0;
+-	END_IF
+-
+-	MaxPassingCycle := TargetCycleCount + CycleVariation;
+-	tHold(
+-		IN := FALSE,
+-		PT := HoldTime);
+-	IF NOT AirOK THEN
+-		Error := TRUE;
+-		ErrorID := 1;
+-		FailureReason := 'HPP Air Supply Not Available';
+-		State := 900;
+-	ELSE
+-		State := 10;
+-	END_IF
+-
+-
+-//******************
+-// Align System for High Pressure
+-//******************
+-10:
+-	Busy := TRUE;
+-	Pump := FALSE;
+-	DumpValveA := FALSE;
+-	DumpValveB := FALSE;
+-	BleedValveA := FALSE;
+-	BleedValveB := FALSE;
+-	BlockValveA := NOT PortA_Active;
+-	BlockValveB := NOT PortB_Active;
+-	HighPressureReached := FALSE;
+-	LowPressureReached := FALSE;
+-	BleedRateBaseline := 0.0;
+-	BleedRateIncrease := 0.0;
+-	ValveOpenBleedCandidate := FALSE;
+-	ValveOpenDuringBleed := FALSE;
+-	BleedBaselineValid := FALSE;
+-	BleedBaselineSampleCount := 0;
+-	
+-	IF CycleCount = 0 AND NOT InitialShearDetected THEN
+-		ShearPeakPressure := SystemPressure;
+-		ShearCurrentDrop := 0.0;
+-	END_IF;
+-	State := 20;
+-
+-//******************
+-// Pressurize to High Range
+-//******************
+-20:
+-	Busy := TRUE;
+-	DumpValveA := TRUE;
+-	DumpValveB := TRUE;
+-	BleedValveA := TRUE;
+-	BleedValveB := TRUE;
+-	BlockValveA := NOT PortA_Active;
+-	BlockValveB := NOT PortB_Active;
+-	Pump := TRUE;
+-	DesiredPressure := HighPressureHigh;
+-
+-	//******************
+-	// Valve opened unexpectedly while building high pressure
+-	//******************
+-	// Pause pressure buildup while an opening candidate is verified.
+-	IF ValveOpeningCheckActive AND NOT ValveOpenDetected THEN
+-    Pump := FALSE;
+-    DesiredPressure := 0.0;
+-    // Retain pressure by keeping dump valves closed.
+-    DumpValveA := TRUE;
+-    DumpValveB := TRUE;
+-    // TRUE = CLOSED for bleed and block valves.
+-    BleedValveA := TRUE;
+-    BleedValveB := TRUE;
+-    BlockValveA := TRUE;
+-    BlockValveB := TRUE;
+-    // Leave State at 20.
+-    // The detector decides whether to confirm or reject the release.
+-	
+-	    IF SystemPressure > HighPressureHigh THEN
+-        Pump := FALSE; Passed := FALSE; Failed := TRUE;
+-        ErrorID := 3;
+-        FailureReason := 'High Pressure Range Exceeded';
+-        State := 900;
+-    END_IF;
+-    ELSIF ValveOpenDetected THEN
+-    Pump := FALSE;
+-    DesiredPressure := 0.0;
+-
+-    // CycleCount contains completed cycles.
+-    // Include the current attempt on which the valve opened.
+-    CycleCount := CycleCount + 1;
+-
+-    IF CycleCount < MinPassingCycle THEN
+-        Failed := TRUE;
+-        Passed := FALSE;
+-        ErrorID := 2;
+-        FailureReason := 'Valve Opened Before Minimum Cycle Count';
+-        State := 900;
+-
+-    ELSIF CycleCount <= MaxPassingCycle THEN
+-        Passed := TRUE;
+-        Failed := FALSE;
+-        State := 100;
+-
+-    ELSE
+-        Failed := TRUE;
+-        Passed := FALSE;
+-        ErrorID := 5;
+-        FailureReason := 'Valve Opened After Maximum Cycle Count';
+-        State := 900;
+-    END_IF;
+-
+-
+-	//******************
+-	// Overpressure
+-	//******************
+-	ELSIF SystemPressure > HighPressureHigh THEN
+-		Pump := FALSE;
+-		Failed := TRUE;
+-		ErrorID := 3;
+-		FailureReason := 'High Pressure Range Exceeded';
+-		State := 900;
+-
+-
+-	//******************
+-	// High Pressure Reached
+-	//******************
+-	// Enter high hold at the middle of the allowed range.
+-ELSIF
+-    (SystemPressure >= ((HighPressureLow + HighPressureHigh) * 0.5))
+-    AND (SystemPressure <= HighPressureHigh)
+-THEN
+-    Pump := FALSE;
+-    HighPressureReached := TRUE;
+-    tHold(IN := FALSE, PT := HoldTime);
+-    tDebounce(IN := FALSE, PT := T#5S);
+-    State := 30;
+-END_IF;
+-	
+-	//******************
+-	// Initial Cycle Shear Monitoring
+-	//******************
+-	IF (CycleCount = 0) AND NOT InitialShearDetected THEN
+-	//Use average because A/B are equalized through the part
+-	IF ((PressureA + PressureB) * 0.5) > ShearPeakPressure THEN
+-		ShearPeakPressure := (PressureA + PressureB) * 0.5;
+-	END_IF;
+-	ShearCurrentDrop := ShearPeakPressure - ((PressureA + PressureB) * 0.5);
+-	IF ShearCurrentDrop < 0.0 THEN
+-		ShearCurrentDrop := 0.0;
+-	END_IF;
+-
+-	//Confirmed pressure drop
+-	IF tShearConfirm.Q THEN
+-
+-		InitialShearDetected := TRUE;
+-
+-		ShearPressure :=
+-			ShearPeakPressure;
+-
+-		ShearTime :=
+-			tShearElapsed.ET;
+-
+-	END_IF;
+-
+-END_IF;
+-
+-
+-//******************
+-// Hold High Pressure
+-//******************
+-30:
+-	Busy := TRUE;
+-	Pump := FALSE;
+-	DumpValveA := TRUE;
+-	DumpValveB := TRUE;
+-//	BleedValveA := FALSE;
+-//	BleedValveB := FALSE;
+-//	BlockValveA := NOT PortA_Active;
+-//	BlockValveB := NOT PortB_Active;
+-	BlockValveA := TRUE;
+-	BlockValveB := TRUE;
+-
+-	//******************
+-	// Unexpected valve opening
+-	//******************
+-	IF ValveOpeningCheckActive AND NOT ValveOpenDetected THEN
+-        Pump := FALSE;
+-        DumpValveA := TRUE; DumpValveB := TRUE;
+-        BleedValveA := TRUE; BleedValveB := TRUE;
+-        BlockValveA := TRUE; BlockValveB := TRUE;
+-        tHold(IN := FALSE, PT := HoldTime);
+-    ELSIF ValveOpenDetected THEN
+-        CycleCount := CycleCount + 1; // Current high/low attempt, same numbering as bleed.
+-		IF CycleCount < MinPassingCycle THEN
+-			Failed := TRUE;
+-			ErrorID := 2;
+-			FailureReason := 'Valve Opened Before Minimum Cycle Count';
+-			State := 900;
+-		ELSIF CycleCount <= MaxPassingCycle THEN
+-			Passed := TRUE;
+-			State := 100;
+-        ELSE
+-            Failed := TRUE; ErrorID := 5;
+-            FailureReason := 'Valve Opened After Maximum Cycle Count';
+-            State := 900;
+-		END_IF
+-
+-
+-	//******************
+-	// Pressure must remain in high range during hold
+-	//******************
+-	    // Pressure outside high range
+-    ELSIF (SystemPressure < HighPressureLow) OR (SystemPressure > HighPressureHigh) THEN
+-
+-        // Require a continuous valid hold.
+-        tHold(IN := FALSE, PT := HoldTime);
+-        tDebounce(IN := TRUE, PT := T#5S);
+-
+-        IF tDebounce.Q THEN
+-            Failed := TRUE;
+-            ErrorID := 4;
+-            FailureReason := 'Pressure Left High Pressure Range During Hold';
+-            State := 900;
+-        END_IF;
+-
+-    // Pressure inside high range
+-    ELSE
+-        tDebounce(IN := FALSE, PT := T#5S);
+-        tHold(IN := TRUE, PT := HoldTime);
+-        IF tHold.Q THEN
+-            tHold(IN := FALSE, PT := HoldTime);
+-            State := 50;
+-        END_IF;
+-    END_IF;
+-
+-
+-//******************
+-// Configure for Bleed Down
+-//******************
+-40:
+-	Busy := TRUE;
+-	Pump := FALSE;
+-	DumpValveA := TRUE;
+-	DumpValveB := TRUE;
+-	BleedValveA := TRUE;
+-	BleedValveB := TRUE;
+-	BlockValveA := NOT PortA_Active;
+-	BlockValveB := NOT PortB_Active;
+-	State := 50;
+-	
+-
+-//******************
+-// Bleed Down to Low Range
+-//******************
+-50:
+-	Busy := TRUE;
+-	Pump := FALSE;
+-    IF ValveOpeningCheckActive AND NOT ValveOpenDetected THEN
+-        Pump := FALSE;
+-        DumpValveA := TRUE; DumpValveB := TRUE;
+-        BleedValveA := TRUE; BleedValveB := TRUE;
+-        BlockValveA := TRUE; BlockValveB := TRUE;
+-        DesiredPressure := 0.0;
+-        ValveOpenBleedCandidate := FALSE;
+-        // Nested bleed FB is disabled/reset during verification; resume from current
+-        // pressure if rejected. This prevents a normal low-range fault preempting detection.
+-    ELSE
+-	DumpValveA := fbBleedToPressure.DumpValveA;
+-	DumpValveB := fbBleedToPressure.DumpValveB;
+-	BleedValveA := NOT fbBleedToPressure.BleedValveA;
+-	BleedValveB := NOT fbBleedToPressure.BleedValveB;
+-	BlockValveA := fbBleedToPressure.BlockValveA;
+-	BlockValveB := fbBleedToPressure.BlockValveB;
+-	DesiredPressure := (LowPressureLow + LowPressureHigh) * 0.5;;
+-	BleedPressureRate := fbBleedToPressure.FilteredPressureRate;
+-	BleedPredictedCoastDrop := fbBleedToPressure.PredictedCoastDrop;
+-	BleedDynamicClosePressure := fbBleedToPressure.DynamicClosePressure;
+-	BleedActualCoastDrop := fbBleedToPressure.ActualCoastDrop;
+-	BleedPredictionError := fbBleedToPressure.PredictionError;
+-	BleedPulseTime := fbBleedToPressure.ActivePulseTime;
+-	BleedPulseEffect := fbBleedToPressure.PSIPerMillisecond;
+-	
+-		//**********************************************************
+-	// Learn normal bleed-down rate
+-	//
+-	// Only learn while:
+-	// 1. Bleed FB has a valid rate
+-	// 2. A bleed valve is actually commanded open
+-	//
+-	// This prevents coast/settle pressure movement from
+-	// becoming part of the normal open-valve bleed baseline.
+-	//**********************************************************
+-	IF EnableLegacyValveOpeningDetection AND fbBleedToPressure.RateCheckValid
+-		AND (fbBleedToPressure.BleedValveA
+-		OR fbBleedToPressure.BleedValveB) THEN
+-
+-		//******************************************************
+-		// First two valid samples establish initial baseline
+-		//******************************************************
+-		IF NOT BleedBaselineValid THEN
+-			BleedRateBaseline := fbBleedToPressure.FilteredPressureRate;
+-			IF BleedBaselineSampleCount < 2 THEN
+-				BleedBaselineSampleCount := BleedBaselineSampleCount + 1;
+-			END_IF;
+-
+-			IF BleedBaselineSampleCount >= 2 THEN
+-				BleedBaselineValid := TRUE;
+-			END_IF;
+-		ELSE
+-
+-			//**************************************************
+-			// Difference between current bleed rate and
+-			// previously learned normal rate
+-			//**************************************************
+-			BleedRateIncrease := fbBleedToPressure.FilteredPressureRate - BleedRateBaseline;
+-
+-			//**************************************************
+-			// Possible valve opening
+-			//**************************************************
+-			ValveOpenBleedCandidate := BleedRateIncrease >= ValveOpenRateIncrease;
+-
+-
+-			//**************************************************
+-			// Only update baseline while the pressure behavior
+-			// still appears normal.
+-			//
+-			// Freeze baseline when a possible valve opening
+-			// starts so the baseline does not chase the event.
+-			//**************************************************
+-
+-			IF NOT ValveOpenBleedCandidate THEN
+-				BleedRateBaseline := BleedRateBaseline + BleedBaselineAlpha * (fbBleedToPressure.FilteredPressureRate - BleedRateBaseline);
+-			END_IF;
+-		END_IF;
+-	ELSE
+-		ValveOpenBleedCandidate := FALSE;
+-	END_IF;
+-	
+-	//Optional HMI/status values
+-	BleedControlPressure := SystemPressure;
+-	BleedHoldElapsed := fbBleedToPressure.HoldElapsedTime;
+-	BleedHoldRemaining := fbBleedToPressure.HoldTimeRemaining;
+-
+-	//******************
+-	// This is where customer expects valve to eventually open
+-	//******************
+-	IF ValveOpenDetected OR ValveOpenDuringBleed THEN
+-		//Cycle has reached its bleed-down portion.
+-		//Count this high -> low attempt as the current cycle.
+-		CycleCount := CycleCount + 1;
+-		IF CycleCount < MinPassingCycle THEN
+-			Failed := TRUE;
+-			ErrorID := 2;
+-			FailureReason := 'Valve Opened Before Minimum Cycle Count';
+-			State := 900;
+-		ELSIF CycleCount <= MaxPassingCycle THEN
+-			Passed := TRUE;
+-			State := 100;
+-		ELSE
+-			Failed := TRUE;
+-			ErrorID := 5;
+-			FailureReason := 'Valve Opened After Maximum Cycle Count';
+-			State := 900;
+-		END_IF
+-
+-	//******************
+-	// Bleed FB Error
+-	//******************
+-	ELSIF fbBleedToPressure.Error THEN
+-		Failed := TRUE;
+-		Error := TRUE;
+-		ErrorID := 6;
+-		FailureReason := fbBleedToPressure.FailureReason;
+-		State := 900;
+-
+-
+-	//******************
+-	// Low Pressure Range Reached
+-	//******************
+-	ELSIF fbBleedToPressure.Done THEN
+-		LowPressureReached := TRUE;
+-		tHold(
+-			IN := FALSE,
+-			PT := HoldTime);
+-		State := 60;
+-	END_IF	
+-
+-
+-//******************
+-// Hold Low Pressure
+-//******************
+-    END_IF; // Valve-opening verification pause
+-
+-60:
+-	Busy := TRUE;
+-    Pump := FALSE;
+-    BleedValveA := TRUE;
+-    BleedValveB := TRUE;
+-
+-    // Confirmed opening takes priority over the low-range fault.
+-    IF ValveOpenDetected OR ValveOpenDuringBleed THEN
+-        tHold(IN := FALSE, PT := HoldTime);
+-
+-        CycleCount := CycleCount + 1;
+-
+-        IF CycleCount < MinPassingCycle THEN
+-            Failed := TRUE;
+-            ErrorID := 2;
+-            FailureReason :=
+-                'Valve Opened Before Minimum Cycle Count';
+-            State := 900;
+-
+-        ELSIF CycleCount <= MaxPassingCycle THEN
+-            Passed := TRUE;
+-            State := 100;
+-
+-        ELSE
+-            Failed := TRUE;
+-            ErrorID := 5;
+-            FailureReason :=
+-                'Valve Opened After Maximum Cycle Count';
+-            State := 900;
+-        END_IF;
+-
+-    // Preserve immediate upper-range failure.
+-    ELSIF SystemPressure > LowPressureHigh THEN
+-        tHold(IN := FALSE, PT := HoldTime);
+-        Failed := TRUE;
+-        ErrorID := 8;
+-        FailureReason :=
+-            'Pressure Exceeded Low Pressure Range During Hold';
+-        State := 900;
+-
+-    // Pressure left the low range: classify before failing.
+-    ELSIF LowRangeFaultPending THEN
+-        Pump := FALSE;
+-        DesiredPressure := 0.0;
+-        DumpValveA := TRUE;
+-        DumpValveB := TRUE;
+-        BleedValveA := TRUE;
+-        BleedValveB := TRUE;
+-        BlockValveA := TRUE;
+-        BlockValveB := TRUE;
+-
+-        tHold(IN := FALSE, PT := HoldTime);
+-
+-        IF ValveOpeningCandidateRejected
+-            OR tLowRangeDecision.Q
+-            OR (tLowRangeGrace.Q
+-                AND NOT ValveOpeningCheckActive) THEN
+-
+-            Failed := TRUE;
+-            ErrorID := 8;
+-            FailureReason :=
+-                'Pressure Below Low Hold Range - Opening Not Confirmed';
+-            State := 900;
+-        END_IF;
+-
+-    // Verify candidates that start while pressure is still in range.
+-    ELSIF ValveOpeningCheckActive THEN
+-        Pump := FALSE;
+-        DesiredPressure := 0.0;
+-        DumpValveA := TRUE;
+-        DumpValveB := TRUE;
+-        BleedValveA := TRUE;
+-        BleedValveB := TRUE;
+-        BlockValveA := TRUE;
+-        BlockValveB := TRUE;
+-
+-        tHold(IN := FALSE, PT := HoldTime);
+-
+-    ELSE
+-        tHold(IN := TRUE, PT := HoldTime);
+-
+-        IF tHold.Q THEN
+-            tHold(IN := FALSE, PT := HoldTime);
+-            State := 70;
+-        END_IF;
+-    END_IF;
+-
+-//******************
+-// Completed One Pressure Cycle
+-//******************
+-70:
+-	CycleCount := CycleCount + 1;
+-	State := 80;
+-
+-
+-//******************
+-// Evaluate Cycle Count
+-//******************
+-80:
+-	Busy := TRUE;
+-
+-	//******************
+-	// Customer's maximum allowed cycle reached
+-	// without valve opening
+-	//******************
+-	IF CycleCount >= MaxPassingCycle THEN
+-		Failed := TRUE;
+-		ErrorID := 7;
+-		FailureReason := 'Valve Did Not Open Before Maximum Cycle Count';
+-		State := 900;
+-	ELSE
+-		State := 10;
+-	END_IF
+-
+-
+-//******************
+-// Test Passed
+-//******************
+-100:
+-	Busy := FALSE;
+-	Done := TRUE;
+-	Passed := TRUE;
+-	Failed := FALSE;
+-	Pump := FALSE;
+-	DumpValveA := TRUE;
+-	DumpValveB := TRUE;
+-	BleedValveA := TRUE;
+-	BleedValveB := TRUE;
+-	BlockValveA := NOT PortA_Active;
+-	BlockValveB := NOT PortB_Active;
+-	tHold(
+-		IN := FALSE,
+-		PT := HoldTime);
+-
+-
+-//******************
+-// Test Failed
+-//******************
+-900:
+-	Busy := FALSE;
+-	Done := FALSE;
+-	Passed := FALSE;
+-	Failed := TRUE;
+-	Error := TRUE;
+-	Pump := FALSE;
+-	DumpValveA := TRUE;
+-	DumpValveB := TRUE;
+-	BleedValveA := TRUE;
+-	BleedValveB := TRUE;
+-	BlockValveA := NOT PortA_Active;
+-	BlockValveB := NOT PortB_Active;
+-	tHold(
+-		IN := FALSE,
+-		PT := HoldTime);
+-END_CASE
+-
+-//**************************************************************
+-// Bleed-Down Valve Opening Confirmation
+-//**************************************************************
+-tValveOpenBleedConfirm(IN := (State = 50) AND ValveOpenBleedCandidate,
+-				PT := ValveOpenConfirmTime);
+-
+-IF tValveOpenBleedConfirm.Q THEN
+-	ValveOpenDuringBleed := TRUE;
+-END_IF;]]></ST>
+-    </Implementation>
+-    <LineIds Name="FB_CyclePressureTest">
+-      <LineId Id="79" Count="16" />
+-      <LineId Id="2137" Count="21" />
+-      <LineId Id="96" Count="0" />
+-      <LineId Id="2159" Count="0" />
+-      <LineId Id="97" Count="3" />
+-      <LineId Id="102" Count="0" />
+-      <LineId Id="104" Count="1" />
+-      <LineId Id="107" Count="1" />
+-      <LineId Id="110" Count="1" />
+-      <LineId Id="113" Count="2" />
+-      <LineId Id="118" Count="3" />
+-      <LineId Id="123" Count="0" />
+-      <LineId Id="125" Count="0" />
+-      <LineId Id="127" Count="6" />
+-      <LineId Id="135" Count="0" />
+-      <LineId Id="137" Count="1" />
+-      <LineId Id="140" Count="1" />
+-      <LineId Id="143" Count="1" />
+-      <LineId Id="146" Count="2" />
+-      <LineId Id="151" Count="3" />
+-      <LineId Id="156" Count="2" />
+-      <LineId Id="160" Count="0" />
+-      <LineId Id="162" Count="1" />
+-      <LineId Id="165" Count="0" />
+-      <LineId Id="167" Count="0" />
+-      <LineId Id="169" Count="0" />
+-      <LineId Id="712" Count="0" />
+-      <LineId Id="727" Count="1" />
+-      <LineId Id="713" Count="0" />
+-      <LineId Id="1145" Count="0" />
+-      <LineId Id="874" Count="2" />
+-      <LineId Id="1665" Count="0" />
+-      <LineId Id="1664" Count="0" />
+-      <LineId Id="1384" Count="0" />
+-      <LineId Id="1390" Count="0" />
+-      <LineId Id="1393" Count="0" />
+-      <LineId Id="1396" Count="0" />
+-      <LineId Id="1399" Count="0" />
+-      <LineId Id="2131" Count="1" />
+-      <LineId Id="1402" Count="0" />
+-      <LineId Id="1408" Count="1" />
+-      <LineId Id="1412" Count="0" />
+-      <LineId Id="1415" Count="0" />
+-      <LineId Id="1418" Count="0" />
+-      <LineId Id="1421" Count="0" />
+-      <LineId Id="1424" Count="0" />
+-      <LineId Id="1427" Count="0" />
+-      <LineId Id="1430" Count="1" />
+-      <LineId Id="1434" Count="0" />
+-      <LineId Id="1437" Count="0" />
+-      <LineId Id="1440" Count="1" />
+-      <LineId Id="1444" Count="0" />
+-      <LineId Id="1447" Count="0" />
+-      <LineId Id="1450" Count="0" />
+-      <LineId Id="1453" Count="0" />
+-      <LineId Id="1456" Count="0" />
+-      <LineId Id="1459" Count="0" />
+-      <LineId Id="1462" Count="0" />
+-      <LineId Id="1837" Count="0" />
+-      <LineId Id="1383" Count="0" />
+-      <LineId Id="1382" Count="0" />
+-      <LineId Id="171" Count="4" />
+-      <LineId Id="177" Count="9" />
+-      <LineId Id="188" Count="1" />
+-      <LineId Id="191" Count="0" />
+-      <LineId Id="193" Count="1" />
+-      <LineId Id="1239" Count="0" />
+-      <LineId Id="1241" Count="1" />
+-      <LineId Id="1244" Count="0" />
+-      <LineId Id="1238" Count="0" />
+-      <LineId Id="1524" Count="1" />
+-      <LineId Id="1527" Count="1" />
+-      <LineId Id="1530" Count="0" />
+-      <LineId Id="1523" Count="0" />
+-      <LineId Id="198" Count="0" />
+-      <LineId Id="1531" Count="0" />
+-      <LineId Id="200" Count="0" />
+-      <LineId Id="203" Count="0" />
+-      <LineId Id="205" Count="0" />
+-      <LineId Id="207" Count="0" />
+-      <LineId Id="209" Count="1" />
+-      <LineId Id="214" Count="2" />
+-      <LineId Id="220" Count="0" />
+-      <LineId Id="222" Count="2" />
+-      <LineId Id="226" Count="0" />
+-      <LineId Id="228" Count="0" />
+-      <LineId Id="230" Count="0" />
+-      <LineId Id="232" Count="7" />
+-      <LineId Id="241" Count="0" />
+-      <LineId Id="244" Count="1" />
+-      <LineId Id="247" Count="1" />
+-      <LineId Id="251" Count="1" />
+-      <LineId Id="254" Count="1" />
+-      <LineId Id="1245" Count="0" />
+-      <LineId Id="1658" Count="0" />
+-      <LineId Id="1660" Count="1" />
+-      <LineId Id="1663" Count="0" />
+-      <LineId Id="1656" Count="0" />
+-      <LineId Id="1260" Count="0" />
+-      <LineId Id="1271" Count="0" />
+-      <LineId Id="1263" Count="0" />
+-      <LineId Id="1266" Count="0" />
+-      <LineId Id="1268" Count="0" />
+-      <LineId Id="257" Count="0" />
+-      <LineId Id="259" Count="5" />
+-      <LineId Id="266" Count="1" />
+-      <LineId Id="269" Count="1" />
+-      <LineId Id="272" Count="1" />
+-      <LineId Id="275" Count="0" />
+-      <LineId Id="946" Count="0" />
+-      <LineId Id="277" Count="3" />
+-      <LineId Id="1993" Count="1" />
+-      <LineId Id="1996" Count="1" />
+-      <LineId Id="1999" Count="2" />
+-      <LineId Id="2003" Count="4" />
+-      <LineId Id="2009" Count="1" />
+-      <LineId Id="2013" Count="0" />
+-      <LineId Id="2039" Count="0" />
+-      <LineId Id="2014" Count="24" />
+-      <LineId Id="299" Count="6" />
+-      <LineId Id="308" Count="0" />
+-      <LineId Id="310" Count="2" />
+-      <LineId Id="315" Count="5" />
+-      <LineId Id="1869" Count="2" />
+-      <LineId Id="1873" Count="3" />
+-      <LineId Id="1878" Count="1" />
+-      <LineId Id="1881" Count="0" />
+-      <LineId Id="339" Count="0" />
+-      <LineId Id="1148" Count="0" />
+-      <LineId Id="1272" Count="2" />
+-      <LineId Id="1276" Count="0" />
+-      <LineId Id="1282" Count="1" />
+-      <LineId Id="1289" Count="0" />
+-      <LineId Id="1292" Count="0" />
+-      <LineId Id="1295" Count="0" />
+-      <LineId Id="1301" Count="0" />
+-      <LineId Id="1303" Count="0" />
+-      <LineId Id="1305" Count="0" />
+-      <LineId Id="1307" Count="13" />
+-      <LineId Id="1150" Count="0" />
+-      <LineId Id="340" Count="6" />
+-      <LineId Id="348" Count="0" />
+-      <LineId Id="350" Count="1" />
+-      <LineId Id="353" Count="0" />
+-      <LineId Id="959" Count="0" />
+-      <LineId Id="357" Count="1" />
+-      <LineId Id="954" Count="0" />
+-      <LineId Id="1882" Count="0" />
+-      <LineId Id="360" Count="4" />
+-      <LineId Id="366" Count="0" />
+-      <LineId Id="368" Count="2" />
+-      <LineId Id="373" Count="0" />
+-      <LineId Id="375" Count="0" />
+-      <LineId Id="377" Count="1" />
+-      <LineId Id="380" Count="5" />
+-      <LineId Id="1840" Count="1" />
+-      <LineId Id="1843" Count="2" />
+-      <LineId Id="1847" Count="5" />
+-      <LineId Id="1854" Count="5" />
+-      <LineId Id="1861" Count="0" />
+-      <LineId Id="1863" Count="3" />
+-      <LineId Id="418" Count="7" />
+-      <LineId Id="427" Count="0" />
+-      <LineId Id="430" Count="1" />
+-      <LineId Id="434" Count="1" />
+-      <LineId Id="438" Count="1" />
+-      <LineId Id="441" Count="6" />
+-      <LineId Id="748" Count="8" />
+-      <LineId Id="1482" Count="0" />
+-      <LineId Id="1485" Count="0" />
+-      <LineId Id="1488" Count="0" />
+-      <LineId Id="1491" Count="0" />
+-      <LineId Id="1494" Count="0" />
+-      <LineId Id="1497" Count="0" />
+-      <LineId Id="1500" Count="0" />
+-      <LineId Id="757" Count="0" />
+-      <LineId Id="1534" Count="9" />
+-      <LineId Id="1545" Count="0" />
+-      <LineId Id="1547" Count="0" />
+-      <LineId Id="1550" Count="0" />
+-      <LineId Id="1554" Count="3" />
+-      <LineId Id="1559" Count="0" />
+-      <LineId Id="1561" Count="0" />
+-      <LineId Id="1564" Count="0" />
+-      <LineId Id="1566" Count="0" />
+-      <LineId Id="1569" Count="1" />
+-      <LineId Id="1572" Count="0" />
+-      <LineId Id="1574" Count="0" />
+-      <LineId Id="1576" Count="0" />
+-      <LineId Id="1579" Count="5" />
+-      <LineId Id="1586" Count="0" />
+-      <LineId Id="1591" Count="3" />
+-      <LineId Id="1596" Count="0" />
+-      <LineId Id="1600" Count="10" />
+-      <LineId Id="1612" Count="0" />
+-      <LineId Id="1623" Count="0" />
+-      <LineId Id="1625" Count="0" />
+-      <LineId Id="1627" Count="0" />
+-      <LineId Id="1629" Count="0" />
+-      <LineId Id="1631" Count="0" />
+-      <LineId Id="1533" Count="0" />
+-      <LineId Id="1105" Count="1" />
+-      <LineId Id="1109" Count="0" />
+-      <LineId Id="1112" Count="0" />
+-      <LineId Id="1104" Count="0" />
+-      <LineId Id="1102" Count="0" />
+-      <LineId Id="758" Count="19" />
+-      <LineId Id="797" Count="4" />
+-      <LineId Id="803" Count="1" />
+-      <LineId Id="806" Count="0" />
+-      <LineId Id="808" Count="0" />
+-      <LineId Id="811" Count="6" />
+-      <LineId Id="819" Count="0" />
+-      <LineId Id="822" Count="2" />
+-      <LineId Id="827" Count="0" />
+-      <LineId Id="778" Count="0" />
+-      <LineId Id="522" Count="6" />
+-      <LineId Id="530" Count="0" />
+-      <LineId Id="532" Count="1" />
+-      <LineId Id="535" Count="1" />
+-      <LineId Id="538" Count="1" />
+-      <LineId Id="541" Count="4" />
+-      <LineId Id="547" Count="0" />
+-      <LineId Id="550" Count="0" />
+-      <LineId Id="552" Count="2" />
+-      <LineId Id="557" Count="0" />
+-      <LineId Id="559" Count="0" />
+-      <LineId Id="561" Count="1" />
+-      <LineId Id="564" Count="0" />
+-      <LineId Id="566" Count="2" />
+-      <LineId Id="571" Count="0" />
+-      <LineId Id="573" Count="1" />
+-      <LineId Id="2160" Count="0" />
+-      <LineId Id="2162" Count="82" />
+-      <LineId Id="661" Count="2" />
+-      <LineId Id="665" Count="0" />
+-      <LineId Id="668" Count="1" />
+-      <LineId Id="671" Count="1" />
+-      <LineId Id="674" Count="1" />
+-      <LineId Id="677" Count="2" />
+-      <LineId Id="681" Count="10" />
+-      <LineId Id="693" Count="0" />
+-      <LineId Id="696" Count="1" />
+-      <LineId Id="699" Count="1" />
+-      <LineId Id="702" Count="1" />
+-      <LineId Id="705" Count="2" />
+-      <LineId Id="9" Count="0" />
+-      <LineId Id="1633" Count="3" />
+-      <LineId Id="1638" Count="0" />
+-      <LineId Id="1644" Count="0" />
+-      <LineId Id="1647" Count="0" />
+-      <LineId Id="1649" Count="0" />
+-      <LineId Id="1651" Count="0" />
+-      <LineId Id="1632" Count="0" />
+-      <LineId Id="609" Count="0" />
+-      <LineId Id="1883" Count="0" />
+-      <LineId Id="611" Count="0" />
+-      <LineId Id="1884" Count="0" />
+-      <LineId Id="613" Count="0" />
+-      <LineId Id="1885" Count="7" />
+-      <LineId Id="622" Count="0" />
+-      <LineId Id="1893" Count="8" />
+-      <LineId Id="632" Count="0" />
+-      <LineId Id="1902" Count="3" />
+-      <LineId Id="2" Count="0" />
+-      <LineId Id="2040" Count="0" />
+-      <LineId Id="670" Count="0" />
+-      <LineId Id="2041" Count="1" />
+-      <LineId Id="673" Count="0" />
+-      <LineId Id="2043" Count="0" />
+-    </LineIds>
+-  </POU>
++<?xml version="1.0" encoding="utf-8"?>
++<TcPlcObject Version="1.1.0.1" ProductVersion="3.1.4024.12">
++  <POU Name="FB_CyclePressureTest" Id="{db588b73-cb4a-41e5-96c5-dec022dbccf4}" SpecialFunc="None">
++    <Declaration><![CDATA[FUNCTION_BLOCK FB_CyclePressureTest
++VAR_INPUT
++	Execute					: BOOL;
++	Abort					: BOOL;
++	PressureA				: LREAL;
++	PressureB				: LREAL;
++	HighPressureLow			: LREAL;
++	HighPressureHigh		: LREAL;
++	LowPressureLow			: LREAL;
++	LowPressureHigh			: LREAL;
++	TargetCycleCount		: UINT;
++	CycleVariation			: UINT;
++	HoldTime				: TIME;
++	ValveOpenDetected		: BOOL;
++    InitialRampEventFault : BOOL := FALSE;
++	ValveOpeningCheckActive : BOOL := FALSE;
++	EnableLegacyValveOpeningDetection : BOOL := FALSE;
++	ValveOpenRateIncrease 	: LREAL := 300.0;
++	AirOK					: BOOL;
++	LowPressureTarget		: LREAL;
++	SystemPressure			: LREAL;
++	EnableBleedValveA		: BOOL;
++	EnableBleedValveB		: BOOL;
++	PortA_Active			: BOOL;
++	PortB_Active			: BOOL;
++	ValveOpeningCandidateRejected : BOOL := FALSE;
++END_VAR
++
++
++VAR_OUTPUT
++	Busy					: BOOL;
++	Done					: BOOL;
++	Passed					: BOOL;
++	Failed					: BOOL;
++	Error					: BOOL;
++	ErrorID					: UINT;
++	FailureReason			: STRING(255);
++	CycleCount				: UINT;
++	MinPassingCycle			: UINT;
++	MaxPassingCycle			: UINT;
++	Pump					: BOOL;
++	DumpValveA				: BOOL;
++	DumpValveB				: BOOL;
++	BleedValveA				: BOOL;
++	BleedValveB				: BOOL;
++	BlockValveA				: BOOL;
++	BlockValveB				: BOOL;
++	HighPressureReached		: BOOL;
++	LowPressureReached		: BOOL;
++	DesiredPressure			: LREAL;
++	InitialShearDetected	: BOOL;
++	ShearPressure			: LREAL;
++	ShearTime				: TIME;
++	TimeRemaining			: TIME;
++	State					: INT;
++END_VAR
++
++
++VAR
++	tHold					: TON;
++	tDebounce				: TON;
++	fbBleedToPressure 		: FB_BleedToPressure;
++	ShearPeakPressure		: LREAL;
++	ShearCurrentDrop		: LREAL;
++	ShearDropThreshold		: LREAL := 100.0;
++	ShearDropConfirmTime	: TIME := T#100MS;
++	tShearElapsed			: TON;
++	tShearConfirm			: TON;
++	ShearMonitoringActive	: BOOL;
++	BleedControlPressure	: LREAL;
++	BleedHoldElapsed		: TIME;
++	BleedHoldRemaining		: TIME;
++	BleedPressureRate			: LREAL;
++	BleedPredictedCoastDrop		: LREAL;
++	BleedDynamicClosePressure	: LREAL;
++	BleedActualCoastDrop		: LREAL;
++	BleedPredictionError		: LREAL;
++	BleedPulseTime				: TIME;
++	BleedPulseEffect			: LREAL;
++	BleedRateBaseline			: LREAL;
++	BleedRateIncrease			: LREAL;
++
++	ValveOpenBleedCandidate		: BOOL;
++	ValveOpenDuringBleed		: BOOL;
++	BleedBaselineValid			: BOOL;
++	BleedBaselineSampleCount	: UINT;
++	BleedBaselineAlpha			: LREAL := 0.10;
++	tValveOpenBleedConfirm		: TON;
++	ValveOpenConfirmTime		: TIME := T#100MS;
++	LowRangeFaultPending 		: BOOL;
++	tLowRangeGrace 				: TON;
++	tLowRangeDecision 			: TON;
++END_VAR]]></Declaration>
++    <Implementation>
++      <ST><![CDATA[//**************************************************************
++// FB_CyclePressureTest
++//
++// One cycle:
++// Pressurize High & Monitor for Shear
++//      ↓
++// Hold High
++//      ↓
++// Bleed to Low
++//      ↓
++// Hold Low
++//      ↓
++// Increment CycleCount
++//      ↓
++// Repeat or Pass/Fail
++//**************************************************************
++
++// Remember a low-range violation until classified.
++// Recovery alone does not erase the violation.
++IF Execute AND NOT Abort AND (State = 60) THEN
++    IF SystemPressure < LowPressureLow THEN
++        LowRangeFaultPending := TRUE;
++    END_IF;
++ELSE
++    LowRangeFaultPending := FALSE;
++END_IF;
++
++// Allow time for the detector to raise a candidate.
++tLowRangeGrace(
++    IN := LowRangeFaultPending
++        AND NOT ValveOpeningCheckActive
++        AND NOT ValveOpenDetected,
++    PT := T#500MS
++);
++
++// Bound the entire decision, including verification.
++tLowRangeDecision(
++    IN := LowRangeFaultPending,
++    PT := T#3S
++);
++
++//******************
++// Abort
++//******************
++IF Abort THEN
++	Pump := FALSE;
++	DumpValveA := FALSE;
++	DumpValveB := FALSE;
++	BleedValveA := FALSE;
++	BleedValveB := FALSE;
++	BlockValveA := FALSE;
++	BlockValveB := FALSE;
++	tHold(
++		IN := FALSE,
++		PT := HoldTime);
++	Busy := FALSE;
++	Done := FALSE;
++	Passed := FALSE;
++	Failed := FALSE;
++	State := 0;
++	RETURN;
++END_IF
++
++
++//******************
++// Reset FB
++//******************
++IF NOT Execute THEN
++	Pump := FALSE;
++	DumpValveA := FALSE;
++	DumpValveB := FALSE;
++	BleedValveA := FALSE;
++	BleedValveB := FALSE;
++	BlockValveA := FALSE;
++	BlockValveB := FALSE;
++	tHold(
++		IN := FALSE,
++		PT := HoldTime);
++	Busy := FALSE;
++	Done := FALSE;
++	Passed := FALSE;
++	Failed := FALSE;
++	Error := FALSE;
++	ErrorID := 0;
++	FailureReason := '';
++	CycleCount := 0;
++	HighPressureReached := FALSE;
++	LowPressureReached := FALSE;
++	State := 0;
++	RETURN;
++END_IF
++
++//******************
++// Function Block Calls
++//******************
++
++//******************
++// Controlled Bleed To Low Pressure
++//******************
++//EnableBleedValveA := EnableBleedValveA,
++//EnableBleedValveB := EnableBleedValveB,
++fbBleedToPressure(Execute := Execute AND (State = 50) AND NOT ValveOpeningCheckActive,
++	Abort := Abort,
++	SystemPressure := SystemPressure,
++	TargetPressure := LowPressureTarget,
++	PressureTolerance := 25.0,
++	// A only or Both: use A. B only: use B.
++	EnableBleedValveA := PortA_Active,
++	EnableBleedValveB := PortB_Active AND NOT PortA_Active,
++	//Dynamic rate prediction
++	RateSampleTime := T#100MS,
++	RateSampleSeconds := 0.10,
++	RateFilterAlpha := 0.50,
++	CoastTimeSeconds := 0.80,
++	MinPredictedCoastDrop := 5.0,
++	MaxPredictedCoastDrop := 200.0,
++	MaxBleedRate := 1000.0,
++	//Final acceptance
++	FinalRateLimit := 20.0,
++	FinalConfirmTime := T#1S, //T#300MS
++	PreferredTargetOffset := 5.0,
++	//Fine bleed
++	CoarsePulseTime := T#100MS,
++	FinePulseTime := T#50MS,
++	VeryFinePulseTime := T#25MS,
++	CoarsePulseThreshold := 100.0,
++	FinePulseThreshold := 40.0,
++	MinPulseTime := T#25MS,
++	MaxPulseTime := T#150MS,
++	SettleTime := T#2S, //T#500MS
++	Timeout := T#5M,
++);
++
++TimeRemaining := HoldTime -  tHold.ET;
++//******************
++// Main State Machine
++//******************
++CASE State OF
++
++//******************
++// Initialize
++//******************
++0:
++	Busy := TRUE;
++	Done := FALSE;
++	Passed := FALSE;
++	Failed := FALSE;
++	Error := FALSE;
++	ErrorID := 0;
++	FailureReason := '';
++	CycleCount := 0;
++	HighPressureReached := FALSE;
++	LowPressureReached := FALSE;
++	InitialShearDetected := FALSE;
++	ShearPressure := 0.0;
++	ShearTime := T#0S;
++	ShearPeakPressure := 0.0;
++	ShearCurrentDrop := 0.0;
++	BleedRateBaseline := 0.0;
++	BleedRateIncrease := 0.0;
++	ValveOpenBleedCandidate := FALSE;
++	ValveOpenDuringBleed := FALSE;
++	BleedBaselineValid := FALSE;
++	BleedBaselineSampleCount := 0;
++	
++	IF TargetCycleCount > CycleVariation THEN
++		MinPassingCycle :=TargetCycleCount - CycleVariation;
++	ELSE
++		MinPassingCycle := 0;
++	END_IF
++
++	MaxPassingCycle := TargetCycleCount + CycleVariation;
++	tHold(
++		IN := FALSE,
++		PT := HoldTime);
++	IF NOT AirOK THEN
++		Error := TRUE;
++		ErrorID := 1;
++		FailureReason := 'HPP Air Supply Not Available';
++		State := 900;
++	ELSE
++		State := 10;
++	END_IF
++
++
++//******************
++// Align System for High Pressure
++//******************
++10:
++	Busy := TRUE;
++	Pump := FALSE;
++	DumpValveA := FALSE;
++	DumpValveB := FALSE;
++	BleedValveA := FALSE;
++	BleedValveB := FALSE;
++	BlockValveA := NOT PortA_Active;
++	BlockValveB := NOT PortB_Active;
++	HighPressureReached := FALSE;
++	LowPressureReached := FALSE;
++	BleedRateBaseline := 0.0;
++	BleedRateIncrease := 0.0;
++	ValveOpenBleedCandidate := FALSE;
++	ValveOpenDuringBleed := FALSE;
++	BleedBaselineValid := FALSE;
++	BleedBaselineSampleCount := 0;
++	
++	IF CycleCount = 0 AND NOT InitialShearDetected THEN
++		ShearPeakPressure := SystemPressure;
++		ShearCurrentDrop := 0.0;
++	END_IF;
++	State := 20;
++
++//******************
++// Pressurize to High Range
++//******************
++20:
++	Busy := TRUE;
++	DumpValveA := TRUE;
++	DumpValveB := TRUE;
++	BleedValveA := TRUE;
++	BleedValveB := TRUE;
++	BlockValveA := NOT PortA_Active;
++	BlockValveB := NOT PortB_Active;
++	Pump := TRUE;
++	DesiredPressure := HighPressureHigh;
++
++	//******************
++	// Valve opened unexpectedly while building high pressure
++	//******************
++	// Pause pressure buildup while an opening candidate is verified.
++    IF InitialRampEventFault THEN
++        Pump := FALSE;
++        DesiredPressure := 0.0;
++        DumpValveA := TRUE; DumpValveB := TRUE;
++        BleedValveA := TRUE; BleedValveB := TRUE;
++        BlockValveA := TRUE; BlockValveB := TRUE;
++        Failed := TRUE; Passed := FALSE;
++        ErrorID := 9;
++        FailureReason := 'First Ramp Event Unconfirmed Or Pressure Input Invalid';
++        State := 900;
++    ELSIF ValveOpeningCheckActive AND NOT ValveOpenDetected THEN
++    Pump := FALSE;
++    DesiredPressure := 0.0;
++    // Retain pressure by keeping dump valves closed.
++    DumpValveA := TRUE;
++    DumpValveB := TRUE;
++    // TRUE = CLOSED for bleed and block valves.
++    BleedValveA := TRUE;
++    BleedValveB := TRUE;
++    BlockValveA := TRUE;
++    BlockValveB := TRUE;
++    // Leave State at 20.
++    // The detector decides whether to confirm or reject the release.
++	
++	    IF SystemPressure > HighPressureHigh THEN
++        Pump := FALSE; Passed := FALSE; Failed := TRUE;
++        ErrorID := 3;
++        FailureReason := 'High Pressure Range Exceeded';
++        State := 900;
++    END_IF;
++    ELSIF ValveOpenDetected THEN
++    Pump := FALSE;
++    DesiredPressure := 0.0;
++
++    // CycleCount contains completed cycles.
++    // Include the current attempt on which the valve opened.
++    CycleCount := CycleCount + 1;
++
++    IF CycleCount = 1 THEN
++        Failed := TRUE; Passed := FALSE;
++        ErrorID := 2;
++        FailureReason := 'Valve Release During Initial Pressure Ramp';
++        State := 900;
++    ELSIF CycleCount < MinPassingCycle THEN
++        Failed := TRUE;
++        Passed := FALSE;
++        ErrorID := 2;
++        FailureReason := 'Valve Opened Before Minimum Cycle Count';
++        State := 900;
++
++    ELSIF CycleCount <= MaxPassingCycle THEN
++        Passed := TRUE;
++        Failed := FALSE;
++        State := 100;
++
++    ELSE
++        Failed := TRUE;
++        Passed := FALSE;
++        ErrorID := 5;
++        FailureReason := 'Valve Opened After Maximum Cycle Count';
++        State := 900;
++    END_IF;
++
++
++	//******************
++	// Overpressure
++	//******************
++	ELSIF SystemPressure > HighPressureHigh THEN
++		Pump := FALSE;
++		Failed := TRUE;
++		ErrorID := 3;
++		FailureReason := 'High Pressure Range Exceeded';
++		State := 900;
++
++
++	//******************
++	// High Pressure Reached
++	//******************
++	// Enter high hold at the middle of the allowed range.
++ELSIF
++    (SystemPressure >= ((HighPressureLow + HighPressureHigh) * 0.5))
++    AND (SystemPressure <= HighPressureHigh)
++THEN
++    Pump := FALSE;
++    HighPressureReached := TRUE;
++    tHold(IN := FALSE, PT := HoldTime);
++    tDebounce(IN := FALSE, PT := T#5S);
++    State := 30;
++END_IF;
++	
++	//******************
++	// Initial Cycle Shear Monitoring
++	//******************
++	IF (CycleCount = 0) AND NOT InitialShearDetected THEN
++	//Use average because A/B are equalized through the part
++	IF ((PressureA + PressureB) * 0.5) > ShearPeakPressure THEN
++		ShearPeakPressure := (PressureA + PressureB) * 0.5;
++	END_IF;
++	ShearCurrentDrop := ShearPeakPressure - ((PressureA + PressureB) * 0.5);
++	IF ShearCurrentDrop < 0.0 THEN
++		ShearCurrentDrop := 0.0;
++	END_IF;
++
++	//Confirmed pressure drop
++	IF tShearConfirm.Q THEN
++
++		InitialShearDetected := TRUE;
++
++		ShearPressure :=
++			ShearPeakPressure;
++
++		ShearTime :=
++			tShearElapsed.ET;
++
++	END_IF;
++
++END_IF;
++
++
++//******************
++// Hold High Pressure
++//******************
++30:
++	Busy := TRUE;
++	Pump := FALSE;
++	DumpValveA := TRUE;
++	DumpValveB := TRUE;
++//	BleedValveA := FALSE;
++//	BleedValveB := FALSE;
++//	BlockValveA := NOT PortA_Active;
++//	BlockValveB := NOT PortB_Active;
++	BlockValveA := TRUE;
++	BlockValveB := TRUE;
++
++	//******************
++	// Unexpected valve opening
++	//******************
++	IF ValveOpeningCheckActive AND NOT ValveOpenDetected THEN
++        Pump := FALSE;
++        DumpValveA := TRUE; DumpValveB := TRUE;
++        BleedValveA := TRUE; BleedValveB := TRUE;
++        BlockValveA := TRUE; BlockValveB := TRUE;
++        tHold(IN := FALSE, PT := HoldTime);
++    ELSIF ValveOpenDetected THEN
++        CycleCount := CycleCount + 1; // Current high/low attempt, same numbering as bleed.
++		IF CycleCount < MinPassingCycle THEN
++			Failed := TRUE;
++			ErrorID := 2;
++			FailureReason := 'Valve Opened Before Minimum Cycle Count';
++			State := 900;
++		ELSIF CycleCount <= MaxPassingCycle THEN
++			Passed := TRUE;
++			State := 100;
++        ELSE
++            Failed := TRUE; ErrorID := 5;
++            FailureReason := 'Valve Opened After Maximum Cycle Count';
++            State := 900;
++		END_IF
++
++
++	//******************
++	// Pressure must remain in high range during hold
++	//******************
++	    // Pressure outside high range
++    ELSIF (SystemPressure < HighPressureLow) OR (SystemPressure > HighPressureHigh) THEN
++
++        // Require a continuous valid hold.
++        tHold(IN := FALSE, PT := HoldTime);
++        tDebounce(IN := TRUE, PT := T#5S);
++
++        IF tDebounce.Q THEN
++            Failed := TRUE;
++            ErrorID := 4;
++            FailureReason := 'Pressure Left High Pressure Range During Hold';
++            State := 900;
++        END_IF;
++
++    // Pressure inside high range
++    ELSE
++        tDebounce(IN := FALSE, PT := T#5S);
++        tHold(IN := TRUE, PT := HoldTime);
++        IF tHold.Q THEN
++            tHold(IN := FALSE, PT := HoldTime);
++            State := 50;
++        END_IF;
++    END_IF;
++
++
++//******************
++// Configure for Bleed Down
++//******************
++40:
++	Busy := TRUE;
++	Pump := FALSE;
++	DumpValveA := TRUE;
++	DumpValveB := TRUE;
++	BleedValveA := TRUE;
++	BleedValveB := TRUE;
++	BlockValveA := NOT PortA_Active;
++	BlockValveB := NOT PortB_Active;
++	State := 50;
++	
++
++//******************
++// Bleed Down to Low Range
++//******************
++50:
++	Busy := TRUE;
++	Pump := FALSE;
++    IF ValveOpeningCheckActive AND NOT ValveOpenDetected THEN
++        Pump := FALSE;
++        DumpValveA := TRUE; DumpValveB := TRUE;
++        BleedValveA := TRUE; BleedValveB := TRUE;
++        BlockValveA := TRUE; BlockValveB := TRUE;
++        DesiredPressure := 0.0;
++        ValveOpenBleedCandidate := FALSE;
++        // Nested bleed FB is disabled/reset during verification; resume from current
++        // pressure if rejected. This prevents a normal low-range fault preempting detection.
++    ELSE
++	DumpValveA := fbBleedToPressure.DumpValveA;
++	DumpValveB := fbBleedToPressure.DumpValveB;
++	BleedValveA := NOT fbBleedToPressure.BleedValveA;
++	BleedValveB := NOT fbBleedToPressure.BleedValveB;
++	BlockValveA := fbBleedToPressure.BlockValveA;
++	BlockValveB := fbBleedToPressure.BlockValveB;
++	DesiredPressure := (LowPressureLow + LowPressureHigh) * 0.5;;
++	BleedPressureRate := fbBleedToPressure.FilteredPressureRate;
++	BleedPredictedCoastDrop := fbBleedToPressure.PredictedCoastDrop;
++	BleedDynamicClosePressure := fbBleedToPressure.DynamicClosePressure;
++	BleedActualCoastDrop := fbBleedToPressure.ActualCoastDrop;
++	BleedPredictionError := fbBleedToPressure.PredictionError;
++	BleedPulseTime := fbBleedToPressure.ActivePulseTime;
++	BleedPulseEffect := fbBleedToPressure.PSIPerMillisecond;
++	
++		//**********************************************************
++	// Learn normal bleed-down rate
++	//
++	// Only learn while:
++	// 1. Bleed FB has a valid rate
++	// 2. A bleed valve is actually commanded open
++	//
++	// This prevents coast/settle pressure movement from
++	// becoming part of the normal open-valve bleed baseline.
++	//**********************************************************
++	IF EnableLegacyValveOpeningDetection AND fbBleedToPressure.RateCheckValid
++		AND (fbBleedToPressure.BleedValveA
++		OR fbBleedToPressure.BleedValveB) THEN
++
++		//******************************************************
++		// First two valid samples establish initial baseline
++		//******************************************************
++		IF NOT BleedBaselineValid THEN
++			BleedRateBaseline := fbBleedToPressure.FilteredPressureRate;
++			IF BleedBaselineSampleCount < 2 THEN
++				BleedBaselineSampleCount := BleedBaselineSampleCount + 1;
++			END_IF;
++
++			IF BleedBaselineSampleCount >= 2 THEN
++				BleedBaselineValid := TRUE;
++			END_IF;
++		ELSE
++
++			//**************************************************
++			// Difference between current bleed rate and
++			// previously learned normal rate
++			//**************************************************
++			BleedRateIncrease := fbBleedToPressure.FilteredPressureRate - BleedRateBaseline;
++
++			//**************************************************
++			// Possible valve opening
++			//**************************************************
++			ValveOpenBleedCandidate := BleedRateIncrease >= ValveOpenRateIncrease;
++
++
++			//**************************************************
++			// Only update baseline while the pressure behavior
++			// still appears normal.
++			//
++			// Freeze baseline when a possible valve opening
++			// starts so the baseline does not chase the event.
++			//**************************************************
++
++			IF NOT ValveOpenBleedCandidate THEN
++				BleedRateBaseline := BleedRateBaseline + BleedBaselineAlpha * (fbBleedToPressure.FilteredPressureRate - BleedRateBaseline);
++			END_IF;
++		END_IF;
++	ELSE
++		ValveOpenBleedCandidate := FALSE;
++	END_IF;
++	
++	//Optional HMI/status values
++	BleedControlPressure := SystemPressure;
++	BleedHoldElapsed := fbBleedToPressure.HoldElapsedTime;
++	BleedHoldRemaining := fbBleedToPressure.HoldTimeRemaining;
++
++	//******************
++	// This is where customer expects valve to eventually open
++	//******************
++	IF ValveOpenDetected OR ValveOpenDuringBleed THEN
++		//Cycle has reached its bleed-down portion.
++		//Count this high -> low attempt as the current cycle.
++		CycleCount := CycleCount + 1;
++		IF CycleCount < MinPassingCycle THEN
++			Failed := TRUE;
++			ErrorID := 2;
++			FailureReason := 'Valve Opened Before Minimum Cycle Count';
++			State := 900;
++		ELSIF CycleCount <= MaxPassingCycle THEN
++			Passed := TRUE;
++			State := 100;
++		ELSE
++			Failed := TRUE;
++			ErrorID := 5;
++			FailureReason := 'Valve Opened After Maximum Cycle Count';
++			State := 900;
++		END_IF
++
++	//******************
++	// Bleed FB Error
++	//******************
++	ELSIF fbBleedToPressure.Error THEN
++		Failed := TRUE;
++		Error := TRUE;
++		ErrorID := 6;
++		FailureReason := fbBleedToPressure.FailureReason;
++		State := 900;
++
++
++	//******************
++	// Low Pressure Range Reached
++	//******************
++	ELSIF fbBleedToPressure.Done THEN
++		LowPressureReached := TRUE;
++		tHold(
++			IN := FALSE,
++			PT := HoldTime);
++		State := 60;
++	END_IF	
++
++
++//******************
++// Hold Low Pressure
++//******************
++    END_IF; // Valve-opening verification pause
++
++60:
++	Busy := TRUE;
++    Pump := FALSE;
++    BleedValveA := TRUE;
++    BleedValveB := TRUE;
++
++    // Confirmed opening takes priority over the low-range fault.
++    IF ValveOpenDetected OR ValveOpenDuringBleed THEN
++        tHold(IN := FALSE, PT := HoldTime);
++
++        CycleCount := CycleCount + 1;
++
++        IF CycleCount < MinPassingCycle THEN
++            Failed := TRUE;
++            ErrorID := 2;
++            FailureReason :=
++                'Valve Opened Before Minimum Cycle Count';
++            State := 900;
++
++        ELSIF CycleCount <= MaxPassingCycle THEN
++            Passed := TRUE;
++            State := 100;
++
++        ELSE
++            Failed := TRUE;
++            ErrorID := 5;
++            FailureReason :=
++                'Valve Opened After Maximum Cycle Count';
++            State := 900;
++        END_IF;
++
++    // Preserve immediate upper-range failure.
++    ELSIF SystemPressure > LowPressureHigh THEN
++        tHold(IN := FALSE, PT := HoldTime);
++        Failed := TRUE;
++        ErrorID := 8;
++        FailureReason :=
++            'Pressure Exceeded Low Pressure Range During Hold';
++        State := 900;
++
++    // Pressure left the low range: classify before failing.
++    ELSIF LowRangeFaultPending THEN
++        Pump := FALSE;
++        DesiredPressure := 0.0;
++        DumpValveA := TRUE;
++        DumpValveB := TRUE;
++        BleedValveA := TRUE;
++        BleedValveB := TRUE;
++        BlockValveA := TRUE;
++        BlockValveB := TRUE;
++
++        tHold(IN := FALSE, PT := HoldTime);
++
++        IF ValveOpeningCandidateRejected
++            OR tLowRangeDecision.Q
++            OR (tLowRangeGrace.Q
++                AND NOT ValveOpeningCheckActive) THEN
++
++            Failed := TRUE;
++            ErrorID := 8;
++            FailureReason :=
++                'Pressure Below Low Hold Range - Opening Not Confirmed';
++            State := 900;
++        END_IF;
++
++    // Verify candidates that start while pressure is still in range.
++    ELSIF ValveOpeningCheckActive THEN
++        Pump := FALSE;
++        DesiredPressure := 0.0;
++        DumpValveA := TRUE;
++        DumpValveB := TRUE;
++        BleedValveA := TRUE;
++        BleedValveB := TRUE;
++        BlockValveA := TRUE;
++        BlockValveB := TRUE;
++
++        tHold(IN := FALSE, PT := HoldTime);
++
++    ELSE
++        tHold(IN := TRUE, PT := HoldTime);
++
++        IF tHold.Q THEN
++            tHold(IN := FALSE, PT := HoldTime);
++            State := 70;
++        END_IF;
++    END_IF;
++
++//******************
++// Completed One Pressure Cycle
++//******************
++70:
++	CycleCount := CycleCount + 1;
++	State := 80;
++
++
++//******************
++// Evaluate Cycle Count
++//******************
++80:
++	Busy := TRUE;
++
++	//******************
++	// Customer's maximum allowed cycle reached
++	// without valve opening
++	//******************
++	IF CycleCount >= MaxPassingCycle THEN
++		Failed := TRUE;
++		ErrorID := 7;
++		FailureReason := 'Valve Did Not Open Before Maximum Cycle Count';
++		State := 900;
++	ELSE
++		State := 10;
++	END_IF
++
++
++//******************
++// Test Passed
++//******************
++100:
++	Busy := FALSE;
++	Done := TRUE;
++	Passed := TRUE;
++	Failed := FALSE;
++	Pump := FALSE;
++	DumpValveA := TRUE;
++	DumpValveB := TRUE;
++	BleedValveA := TRUE;
++	BleedValveB := TRUE;
++	BlockValveA := NOT PortA_Active;
++	BlockValveB := NOT PortB_Active;
++	tHold(
++		IN := FALSE,
++		PT := HoldTime);
++
++
++//******************
++// Test Failed
++//******************
++900:
++	Busy := FALSE;
++	Done := FALSE;
++	Passed := FALSE;
++	Failed := TRUE;
++	Error := TRUE;
++	Pump := FALSE;
++	DumpValveA := TRUE;
++	DumpValveB := TRUE;
++	BleedValveA := TRUE;
++	BleedValveB := TRUE;
++	BlockValveA := NOT PortA_Active;
++	BlockValveB := NOT PortB_Active;
++	tHold(
++		IN := FALSE,
++		PT := HoldTime);
++END_CASE
++
++//**************************************************************
++// Bleed-Down Valve Opening Confirmation
++//**************************************************************
++tValveOpenBleedConfirm(IN := (State = 50) AND ValveOpenBleedCandidate,
++				PT := ValveOpenConfirmTime);
++
++IF tValveOpenBleedConfirm.Q THEN
++	ValveOpenDuringBleed := TRUE;
++END_IF;]]></ST>
++    </Implementation>
++    <LineIds Name="FB_CyclePressureTest">
++      <LineId Id="79" Count="16" />
++      <LineId Id="2137" Count="21" />
++      <LineId Id="96" Count="0" />
++      <LineId Id="2159" Count="0" />
++      <LineId Id="97" Count="3" />
++      <LineId Id="102" Count="0" />
++      <LineId Id="104" Count="1" />
++      <LineId Id="107" Count="1" />
++      <LineId Id="110" Count="1" />
++      <LineId Id="113" Count="2" />
++      <LineId Id="118" Count="3" />
++      <LineId Id="123" Count="0" />
++      <LineId Id="125" Count="0" />
++      <LineId Id="127" Count="6" />
++      <LineId Id="135" Count="0" />
++      <LineId Id="137" Count="1" />
++      <LineId Id="140" Count="1" />
++      <LineId Id="143" Count="1" />
++      <LineId Id="146" Count="2" />
++      <LineId Id="151" Count="3" />
++      <LineId Id="156" Count="2" />
++      <LineId Id="160" Count="0" />
++      <LineId Id="162" Count="1" />
++      <LineId Id="165" Count="0" />
++      <LineId Id="167" Count="0" />
++      <LineId Id="169" Count="0" />
++      <LineId Id="712" Count="0" />
++      <LineId Id="727" Count="1" />
++      <LineId Id="713" Count="0" />
++      <LineId Id="1145" Count="0" />
++      <LineId Id="874" Count="2" />
++      <LineId Id="1665" Count="0" />
++      <LineId Id="1664" Count="0" />
++      <LineId Id="1384" Count="0" />
++      <LineId Id="1390" Count="0" />
++      <LineId Id="1393" Count="0" />
++      <LineId Id="1396" Count="0" />
++      <LineId Id="1399" Count="0" />
++      <LineId Id="2131" Count="1" />
++      <LineId Id="1402" Count="0" />
++      <LineId Id="1408" Count="1" />
++      <LineId Id="1412" Count="0" />
++      <LineId Id="1415" Count="0" />
++      <LineId Id="1418" Count="0" />
++      <LineId Id="1421" Count="0" />
++      <LineId Id="1424" Count="0" />
++      <LineId Id="1427" Count="0" />
++      <LineId Id="1430" Count="1" />
++      <LineId Id="1434" Count="0" />
++      <LineId Id="1437" Count="0" />
++      <LineId Id="1440" Count="1" />
++      <LineId Id="1444" Count="0" />
++      <LineId Id="1447" Count="0" />
++      <LineId Id="1450" Count="0" />
++      <LineId Id="1453" Count="0" />
++      <LineId Id="1456" Count="0" />
++      <LineId Id="1459" Count="0" />
++      <LineId Id="1462" Count="0" />
++      <LineId Id="1837" Count="0" />
++      <LineId Id="1383" Count="0" />
++      <LineId Id="1382" Count="0" />
++      <LineId Id="171" Count="4" />
++      <LineId Id="177" Count="9" />
++      <LineId Id="188" Count="1" />
++      <LineId Id="191" Count="0" />
++      <LineId Id="193" Count="1" />
++      <LineId Id="1239" Count="0" />
++      <LineId Id="1241" Count="1" />
++      <LineId Id="1244" Count="0" />
++      <LineId Id="1238" Count="0" />
++      <LineId Id="1524" Count="1" />
++      <LineId Id="1527" Count="1" />
++      <LineId Id="1530" Count="0" />
++      <LineId Id="1523" Count="0" />
++      <LineId Id="198" Count="0" />
++      <LineId Id="1531" Count="0" />
++      <LineId Id="200" Count="0" />
++      <LineId Id="203" Count="0" />
++      <LineId Id="205" Count="0" />
++      <LineId Id="207" Count="0" />
++      <LineId Id="209" Count="1" />
++      <LineId Id="214" Count="2" />
++      <LineId Id="220" Count="0" />
++      <LineId Id="222" Count="2" />
++      <LineId Id="226" Count="0" />
++      <LineId Id="228" Count="0" />
++      <LineId Id="230" Count="0" />
++      <LineId Id="232" Count="7" />
++      <LineId Id="241" Count="0" />
++      <LineId Id="244" Count="1" />
++      <LineId Id="247" Count="1" />
++      <LineId Id="251" Count="1" />
++      <LineId Id="254" Count="1" />
++      <LineId Id="1245" Count="0" />
++      <LineId Id="1658" Count="0" />
++      <LineId Id="1660" Count="1" />
++      <LineId Id="1663" Count="0" />
++      <LineId Id="1656" Count="0" />
++      <LineId Id="1260" Count="0" />
++      <LineId Id="1271" Count="0" />
++      <LineId Id="1263" Count="0" />
++      <LineId Id="1266" Count="0" />
++      <LineId Id="1268" Count="0" />
++      <LineId Id="257" Count="0" />
++      <LineId Id="259" Count="5" />
++      <LineId Id="266" Count="1" />
++      <LineId Id="269" Count="1" />
++      <LineId Id="272" Count="1" />
++      <LineId Id="275" Count="0" />
++      <LineId Id="946" Count="0" />
++      <LineId Id="277" Count="3" />
++      <LineId Id="1993" Count="1" />
++      <LineId Id="1996" Count="1" />
++      <LineId Id="1999" Count="2" />
++      <LineId Id="2003" Count="4" />
++      <LineId Id="2009" Count="1" />
++      <LineId Id="2013" Count="0" />
++      <LineId Id="2039" Count="0" />
++      <LineId Id="2014" Count="24" />
++      <LineId Id="299" Count="6" />
++      <LineId Id="308" Count="0" />
++      <LineId Id="310" Count="2" />
++      <LineId Id="315" Count="5" />
++      <LineId Id="1869" Count="2" />
++      <LineId Id="1873" Count="3" />
++      <LineId Id="1878" Count="1" />
++      <LineId Id="1881" Count="0" />
++      <LineId Id="339" Count="0" />
++      <LineId Id="1148" Count="0" />
++      <LineId Id="1272" Count="2" />
++      <LineId Id="1276" Count="0" />
++      <LineId Id="1282" Count="1" />
++      <LineId Id="1289" Count="0" />
++      <LineId Id="1292" Count="0" />
++      <LineId Id="1295" Count="0" />
++      <LineId Id="1301" Count="0" />
++      <LineId Id="1303" Count="0" />
++      <LineId Id="1305" Count="0" />
++      <LineId Id="1307" Count="13" />
++      <LineId Id="1150" Count="0" />
++      <LineId Id="340" Count="6" />
++      <LineId Id="348" Count="0" />
++      <LineId Id="350" Count="1" />
++      <LineId Id="353" Count="0" />
++      <LineId Id="959" Count="0" />
++      <LineId Id="357" Count="1" />
++      <LineId Id="954" Count="0" />
++      <LineId Id="1882" Count="0" />
++      <LineId Id="360" Count="4" />
++      <LineId Id="366" Count="0" />
++      <LineId Id="368" Count="2" />
++      <LineId Id="373" Count="0" />
++      <LineId Id="375" Count="0" />
++      <LineId Id="377" Count="1" />
++      <LineId Id="380" Count="5" />
++      <LineId Id="1840" Count="1" />
++      <LineId Id="1843" Count="2" />
++      <LineId Id="1847" Count="5" />
++      <LineId Id="1854" Count="5" />
++      <LineId Id="1861" Count="0" />
++      <LineId Id="1863" Count="3" />
++      <LineId Id="418" Count="7" />
++      <LineId Id="427" Count="0" />
++      <LineId Id="430" Count="1" />
++      <LineId Id="434" Count="1" />
++      <LineId Id="438" Count="1" />
++      <LineId Id="441" Count="6" />
++      <LineId Id="748" Count="8" />
++      <LineId Id="1482" Count="0" />
++      <LineId Id="1485" Count="0" />
++      <LineId Id="1488" Count="0" />
++      <LineId Id="1491" Count="0" />
++      <LineId Id="1494" Count="0" />
++      <LineId Id="1497" Count="0" />
++      <LineId Id="1500" Count="0" />
++      <LineId Id="757" Count="0" />
++      <LineId Id="1534" Count="9" />
++      <LineId Id="1545" Count="0" />
++      <LineId Id="1547" Count="0" />
++      <LineId Id="1550" Count="0" />
++      <LineId Id="1554" Count="3" />
++      <LineId Id="1559" Count="0" />
++      <LineId Id="1561" Count="0" />
++      <LineId Id="1564" Count="0" />
++      <LineId Id="1566" Count="0" />
++      <LineId Id="1569" Count="1" />
++      <LineId Id="1572" Count="0" />
++      <LineId Id="1574" Count="0" />
++      <LineId Id="1576" Count="0" />
++      <LineId Id="1579" Count="5" />
++      <LineId Id="1586" Count="0" />
++      <LineId Id="1591" Count="3" />
++      <LineId Id="1596" Count="0" />
++      <LineId Id="1600" Count="10" />
++      <LineId Id="1612" Count="0" />
++      <LineId Id="1623" Count="0" />
++      <LineId Id="1625" Count="0" />
++      <LineId Id="1627" Count="0" />
++      <LineId Id="1629" Count="0" />
++      <LineId Id="1631" Count="0" />
++      <LineId Id="1533" Count="0" />
++      <LineId Id="1105" Count="1" />
++      <LineId Id="1109" Count="0" />
++      <LineId Id="1112" Count="0" />
++      <LineId Id="1104" Count="0" />
++      <LineId Id="1102" Count="0" />
++      <LineId Id="758" Count="19" />
++      <LineId Id="797" Count="4" />
++      <LineId Id="803" Count="1" />
++      <LineId Id="806" Count="0" />
++      <LineId Id="808" Count="0" />
++      <LineId Id="811" Count="6" />
++      <LineId Id="819" Count="0" />
++      <LineId Id="822" Count="2" />
++      <LineId Id="827" Count="0" />
++      <LineId Id="778" Count="0" />
++      <LineId Id="522" Count="6" />
++      <LineId Id="530" Count="0" />
++      <LineId Id="532" Count="1" />
++      <LineId Id="535" Count="1" />
++      <LineId Id="538" Count="1" />
++      <LineId Id="541" Count="4" />
++      <LineId Id="547" Count="0" />
++      <LineId Id="550" Count="0" />
++      <LineId Id="552" Count="2" />
++      <LineId Id="557" Count="0" />
++      <LineId Id="559" Count="0" />
++      <LineId Id="561" Count="1" />
++      <LineId Id="564" Count="0" />
++      <LineId Id="566" Count="2" />
++      <LineId Id="571" Count="0" />
++      <LineId Id="573" Count="1" />
++      <LineId Id="2160" Count="0" />
++      <LineId Id="2162" Count="82" />
++      <LineId Id="661" Count="2" />
++      <LineId Id="665" Count="0" />
++      <LineId Id="668" Count="1" />
++      <LineId Id="671" Count="1" />
++      <LineId Id="674" Count="1" />
++      <LineId Id="677" Count="2" />
++      <LineId Id="681" Count="10" />
++      <LineId Id="693" Count="0" />
++      <LineId Id="696" Count="1" />
++      <LineId Id="699" Count="1" />
++      <LineId Id="702" Count="1" />
++      <LineId Id="705" Count="2" />
++      <LineId Id="9" Count="0" />
++      <LineId Id="1633" Count="3" />
++      <LineId Id="1638" Count="0" />
++      <LineId Id="1644" Count="0" />
++      <LineId Id="1647" Count="0" />
++      <LineId Id="1649" Count="0" />
++      <LineId Id="1651" Count="0" />
++      <LineId Id="1632" Count="0" />
++      <LineId Id="609" Count="0" />
++      <LineId Id="1883" Count="0" />
++      <LineId Id="611" Count="0" />
++      <LineId Id="1884" Count="0" />
++      <LineId Id="613" Count="0" />
++      <LineId Id="1885" Count="7" />
++      <LineId Id="622" Count="0" />
++      <LineId Id="1893" Count="8" />
++      <LineId Id="632" Count="0" />
++      <LineId Id="1902" Count="3" />
++      <LineId Id="2" Count="0" />
++      <LineId Id="2040" Count="0" />
++      <LineId Id="670" Count="0" />
++      <LineId Id="2041" Count="1" />
++      <LineId Id="673" Count="0" />
++      <LineId Id="2043" Count="0" />
++    </LineIds>
++  </POU>
+ </TcPlcObject>

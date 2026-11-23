@@ -1,0 +1,31 @@
+--- PressureTester - 100ft Single v100/test/FrontSide/POUs/POUs/SEQUENCE.TcPOU
++++ PressureTester - 100ft Single v100/test/FrontSide/POUs/POUs/SEQUENCE.TcPOU
+@@ -32,7 +32,8 @@
+ 	SequenceActive			: BOOL;
+ 	ShearTestActive 		: BOOL;
+ 	RateIncreaseTolerance	: REAL;
+-	ValveOpenDetected		: BOOL;
++	ValveOpenDetected		: BOOL;
++    EnableManualValveOpeningSimulation : BOOL := FALSE; // Commissioning only; keep FALSE for acceptance tests.
+ 	TestPassed				: BOOL;
+ 	TestFailed				: BOOL;
+ 	TestPeakPress			: TIME;
+@@ -218,7 +219,7 @@
+     PortAActive := PortA_Active,
+     PortBActive := PortB_Active,
+     BleedOpenA := NOT O_BleedValveA,
+-    BleedOpenB := NOT O_BleedValveA,
++    BleedOpenB := NOT O_BleedValveB,
+     DumpsClosed := (NOT PortA_Active OR O_DumpValveA)
+         AND (NOT PortB_Active OR O_DumpValveB),
+     PumpOff := NOT fbCyclePressureTest.Pump AND NOT PumpManualCmd,
+@@ -295,7 +296,8 @@
+ 			CycleVariation := LoadedRecipe.CycleVariation,
+ 			HoldTime := LoadedRecipe.CyclePressureHoldTime,
+ 			ValveOpeningCandidateRejected := fbValveOpeningDetector.CandidateRejected,
+-			ValveOpenDetected := ValveOpenDetected OR fbValveOpeningDetector.Detected,
++			ValveOpenDetected := fbValveOpeningDetector.Detected
++                OR (EnableManualValveOpeningSimulation AND ValveOpenDetected),
+ 			ValveOpeningCheckActive := fbValveOpeningDetector.CloseBleedRequest,
+ 			EnableLegacyValveOpeningDetection := FALSE,
+ 			AirOK := Safety_HPP1AirStatus,

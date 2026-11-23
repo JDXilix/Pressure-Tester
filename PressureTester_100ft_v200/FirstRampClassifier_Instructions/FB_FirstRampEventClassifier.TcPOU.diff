@@ -1,0 +1,350 @@
+--- PressureTester - 100ft Single v100/test/FrontSide/POUs/POUs/FB_FirstRampEventClassifier.TcPOU
++++ PressureTester - 100ft Single v100/test/FrontSide/POUs/POUs/FB_FirstRampEventClassifier.TcPOU
+@@ -0,0 +1,347 @@
++<?xml version="1.0" encoding="utf-8"?>
++<TcPlcObject Version="1.1.0.1" ProductVersion="3.1.4024.0">
++  <POU Name="FB_FirstRampEventClassifier" Id="{AF18EB5F-18D1-4DEA-A1AB-ED24AAC4D3FA}" SpecialFunc="None">
++    <Declaration><![CDATA[FUNCTION_BLOCK FB_FirstRampEventClassifier
++VAR_INPUT
++    Enable : BOOL;
++    Reset : BOOL;
++    RampActive : BOOL;
++    PressureA : LREAL;
++    PressureB : LREAL;
++    PortAActive : BOOL;
++    PortBActive : BOOL;
++    PumpOff : BOOL;
++    ReleasePathsClosed : BOOL; // Commands only, not physical feedback.
++    SensorDataValid : BOOL;
++    CycleTimeSeconds : LREAL := 0.005;
++    ArmDelaySeconds : LREAL := 0.50;
++    MinimumArmPSI : LREAL := 500.0;
++    CandidateDropPSI : LREAL := 25.0;
++    CandidateConfirmSeconds : LREAL := 0.15;
++    CoastSeconds : LREAL := 0.80;
++    ObserveSeconds : LREAL := 0.30;
++    ReleaseDropPSI : LREAL := 75.0;
++    ReleaseRatePSIperSec : LREAL := 100.0;
++    SettledDropPSI : LREAL := 25.0;
++    SettledRatePSIperSec : LREAL := 50.0;
++    MinimumResidualPSI : LREAL := 100.0;
++    MaximumShearLossPSI : LREAL := 300.0;
++    MaximumShearLossFraction : LREAL := 0.25;
++    VerificationTimeoutSeconds : LREAL := 2.0;
++END_VAR
++VAR_OUTPUT
++    State : INT; // 0 observe, 10 verify, 100 release, 900 unconfirmed/fault.
++    CheckActive : BOOL;
++    ReleaseConfirmed : BOOL;
++    Fault : BOOL;
++    FailureReason : STRING(120);
++    PossibleShearCaptured : BOOL;
++    PossibleShearCount : UDINT;
++    ShearPressurePSI : LREAL;
++    ShearDropPSI : LREAL;
++    ShearTimeSeconds : LREAL;
++    PressureDropObserved : BOOL; // First qualified-amplitude drop, even if too brief to verify.
++    ObservedPeakPressurePSI : LREAL;
++    ObservedTimeSeconds : LREAL;
++    CandidateCount : UDINT;
++    CandidatePressurePSI : LREAL;
++    CandidateTimeSeconds : LREAL;
++    EventClassification : STRING(120);
++    Armed : BOOL;
++    SelectedPressure : LREAL;
++    CurrentDropPSI : LREAL;
++    DropRatePSIperSec : LREAL;
++    VerificationElapsedSeconds : LREAL;
++    ClosedCoastSeconds : LREAL;
++    TracePressureA : ARRAY[0..999] OF LREAL;
++    TracePressureB : ARRAY[0..999] OF LREAL;
++    TraceTimeSeconds : ARRAY[0..999] OF LREAL;
++    TracePumpOff : ARRAY[0..999] OF BOOL;
++    TraceReleasePathsClosed : ARRAY[0..999] OF BOOL;
++    TraceState : ARRAY[0..999] OF INT;
++    TraceWriteIndex : UINT;
++    TraceCount : UINT;
++    TraceFrozen : BOOL;
++    TraceHasCandidate : BOOL;
++    TraceCandidateIndex : UINT;
++    TraceCandidatePressurePSI : LREAL;
++    TraceCandidateTimeSeconds : LREAL;
++END_VAR
++VAR
++    Initialized : BOOL;
++    FilteredA : LREAL;
++    FilteredB : LREAL;
++    Elapsed : LREAL;
++    ArmElapsed : LREAL;
++    DropElapsed : LREAL;
++    RetrySeconds : LREAL;
++    WatchPeak : LREAL;
++    WatchPeakA : LREAL;
++    WatchPeakB : LREAL;
++    SevereDrop : BOOL;
++    Peak : LREAL;
++    PeakA : LREAL;
++    PeakB : LREAL;
++    CandidateA : LREAL;
++    CandidateB : LREAL;
++    CandidateMinimum : LREAL;
++    ReferenceSet : BOOL;
++    ReferenceA : LREAL;
++    ReferenceB : LREAL;
++    ReferencePressure : LREAL;
++    ReferenceElapsed : LREAL;
++    SampleElapsed : LREAL;
++    PreviousSample : LREAL;
++    PostTraceSeconds : LREAL;
++    CaptureActive : BOOL;
++    DropThresholdCrossed : BOOL;
++    ReleaseEvidence : BOOL;
++    SettledEvidence : BOOL;
++    LossAllowed : LREAL;
++END_VAR
++]]></Declaration>
++    <Implementation><ST><![CDATA[// Independent first-ramp event capture. A possible shear never passes the cycle.
++IF Reset THEN
++    State := 0;
++    CheckActive := FALSE;
++    ReleaseConfirmed := FALSE;
++    Fault := FALSE;
++    FailureReason := '';
++    PossibleShearCaptured := FALSE;
++    PossibleShearCount := 0;
++    ShearPressurePSI := 0.0;
++    ShearDropPSI := 0.0;
++    ShearTimeSeconds := 0.0;
++    PressureDropObserved := FALSE;
++    ObservedPeakPressurePSI := 0.0;
++    ObservedTimeSeconds := 0.0;
++    CandidateCount := 0;
++    CandidatePressurePSI := 0.0;
++    CandidateTimeSeconds := 0.0;
++    EventClassification := '';
++    Armed := FALSE;
++    Initialized := FALSE;
++    Elapsed := 0.0;
++    ArmElapsed := 0.0;
++    DropElapsed := 0.0;
++    WatchPeak := 0.0;
++    WatchPeakA := 0.0;
++    WatchPeakB := 0.0;
++    RetrySeconds := 0.0;
++    VerificationElapsedSeconds := 0.0;
++    ClosedCoastSeconds := 0.0;
++    ReferenceSet := FALSE;
++    ReferenceElapsed := 0.0;
++    SampleElapsed := 0.0;
++    PostTraceSeconds := 0.0;
++    CaptureActive := FALSE;
++    TraceWriteIndex := 0;
++    TraceCount := 0;
++    TraceFrozen := FALSE;
++    TraceHasCandidate := FALSE;
++    TraceCandidateIndex := 0;
++    TraceCandidatePressurePSI := 0.0;
++    TraceCandidateTimeSeconds := 0.0;
++    RETURN;
++END_IF;
++IF CycleTimeSeconds <= 0.0 THEN
++    RETURN;
++END_IF;
++Elapsed := Elapsed + CycleTimeSeconds;
++IF NOT Initialized THEN
++    FilteredA := PressureA;
++    FilteredB := PressureB;
++    Initialized := TRUE;
++ELSE
++    FilteredA := FilteredA + 0.20 * (PressureA - FilteredA);
++    FilteredB := FilteredB + 0.20 * (PressureB - FilteredB);
++END_IF;
++IF PortAActive AND PortBActive THEN
++    SelectedPressure := (FilteredA + FilteredB) * 0.5;
++ELSIF PortAActive THEN
++    SelectedPressure := FilteredA;
++ELSE
++    SelectedPressure := FilteredB;
++END_IF;
++CheckActive := Enable AND RampActive AND ((State = 10) OR Fault OR ReleaseConfirmed);
++IF Enable AND RampActive THEN
++    CaptureActive := TRUE;
++END_IF;
++// Freeze first candidate trace 4 seconds later; absent an event freeze at ramp exit.
++IF TraceHasCandidate AND NOT TraceFrozen THEN
++    PostTraceSeconds := PostTraceSeconds + CycleTimeSeconds;
++    IF PostTraceSeconds >= 4.0 THEN
++        TraceFrozen := TRUE;
++    END_IF;
++ELSIF CaptureActive AND NOT RampActive THEN
++    TraceFrozen := TRUE;
++END_IF;
++SampleElapsed := SampleElapsed + CycleTimeSeconds;
++IF SampleElapsed >= 0.020 THEN
++    DropRatePSIperSec := (PreviousSample - SelectedPressure) / SampleElapsed;
++    PreviousSample := SelectedPressure;
++    SampleElapsed := 0.0;
++    IF CaptureActive AND NOT TraceFrozen THEN
++        TracePressureA[TraceWriteIndex] := FilteredA;
++        TracePressureB[TraceWriteIndex] := FilteredB;
++        TraceTimeSeconds[TraceWriteIndex] := Elapsed;
++        TracePumpOff[TraceWriteIndex] := PumpOff;
++        TraceReleasePathsClosed[TraceWriteIndex] := ReleasePathsClosed;
++        TraceState[TraceWriteIndex] := State;
++        TraceWriteIndex := (TraceWriteIndex + 1) MOD 1000;
++        TraceCount := MIN(1000, TraceCount + 1);
++    END_IF;
++END_IF;
++IF NOT Enable OR NOT RampActive THEN
++    Armed := FALSE;
++    ArmElapsed := 0.0;
++    DropElapsed := 0.0;
++    CheckActive := FALSE;
++    RETURN;
++END_IF;
++IF NOT SensorDataValid OR NOT (PortAActive OR PortBActive) THEN
++    Fault := TRUE;
++    FailureReason := 'First ramp: invalid pressure input';
++    EventClassification := 'Input fault';
++    State := 900;
++    CheckActive := TRUE;
++    RETURN;
++END_IF;
++RetrySeconds := MAX(0.0, RetrySeconds - CycleTimeSeconds);
++CASE State OF
++0:
++    IF SelectedPressure > WatchPeak THEN
++        WatchPeak := SelectedPressure;
++        WatchPeakA := FilteredA;
++        WatchPeakB := FilteredB;
++    END_IF;
++    // A severe collapse above the minimum pressure bypasses startup/retry arming.
++    // It still goes through verification and cannot directly award a pass.
++    LossAllowed := MAX(MaximumShearLossPSI, WatchPeak * MaximumShearLossFraction);
++    SevereDrop := (WatchPeak >= MinimumArmPSI) AND ((WatchPeak - SelectedPressure) >= LossAllowed) AND (NOT PortAActive OR ((WatchPeakA - FilteredA) >= LossAllowed)) AND (NOT PortBActive OR ((WatchPeakB - FilteredB) >= LossAllowed));
++    IF NOT Armed AND SevereDrop THEN
++        Armed := TRUE;
++        Peak := WatchPeak;
++        PeakA := WatchPeakA;
++        PeakB := WatchPeakB;
++    END_IF;
++    IF NOT Armed THEN
++        Peak := SelectedPressure;
++        PeakA := FilteredA;
++        PeakB := FilteredB;
++        IF NOT PumpOff AND ReleasePathsClosed AND (RetrySeconds <= 0.0) THEN
++            ArmElapsed := ArmElapsed + CycleTimeSeconds;
++        ELSE
++            ArmElapsed := 0.0;
++        END_IF;
++        IF (ArmElapsed >= ArmDelaySeconds) AND (SelectedPressure >= MinimumArmPSI) THEN
++            Armed := TRUE;
++        END_IF;
++    END_IF;
++    IF Armed THEN
++        IF SelectedPressure > Peak THEN
++            Peak := SelectedPressure;
++            PeakA := FilteredA;
++            PeakB := FilteredB;
++        END_IF;
++        CurrentDropPSI := MAX(0.0, Peak - SelectedPressure);
++        DropThresholdCrossed := (CurrentDropPSI >= CandidateDropPSI) AND (NOT PortAActive OR ((PeakA - FilteredA) >= CandidateDropPSI)) AND (NOT PortBActive OR ((PeakB - FilteredB) >= CandidateDropPSI));
++        // Capture the first amplitude crossing immediately, even if shorter than
++        // the verification qualification time. This is evidence only, not a shear.
++        IF DropThresholdCrossed AND NOT PressureDropObserved THEN
++            PressureDropObserved := TRUE;
++            ObservedPeakPressurePSI := Peak;
++            ObservedTimeSeconds := Elapsed;
++            IF NOT TraceHasCandidate THEN
++                TraceHasCandidate := TRUE;
++                TraceCandidateIndex := (TraceWriteIndex + 999) MOD 1000;
++                TraceCandidatePressurePSI := Peak;
++                TraceCandidateTimeSeconds := Elapsed;
++                PostTraceSeconds := 0.0;
++            END_IF;
++        END_IF;
++        IF DropThresholdCrossed THEN
++            DropElapsed := DropElapsed + CycleTimeSeconds;
++        ELSE
++            DropElapsed := 0.0;
++        END_IF;
++        IF DropElapsed >= CandidateConfirmSeconds THEN
++            CandidateCount := CandidateCount + 1;
++            CandidatePressurePSI := Peak;
++            CandidateTimeSeconds := Elapsed - DropElapsed;
++            CandidateA := PeakA;
++            CandidateB := PeakB;
++            CandidateMinimum := SelectedPressure;
++            VerificationElapsedSeconds := 0.0;
++            ClosedCoastSeconds := 0.0;
++            ReferenceSet := FALSE;
++            ReferenceElapsed := 0.0;
++            EventClassification := 'First-ramp candidate: verifying';
++            IF NOT TraceHasCandidate THEN
++                TraceHasCandidate := TRUE;
++                TraceCandidateIndex := (TraceWriteIndex + 999) MOD 1000;
++                TraceCandidatePressurePSI := CandidatePressurePSI;
++                TraceCandidateTimeSeconds := CandidateTimeSeconds;
++                PostTraceSeconds := 0.0;
++            END_IF;
++            State := 10;
++            CheckActive := TRUE;
++        END_IF;
++    END_IF;
++10:
++    CheckActive := TRUE;
++    VerificationElapsedSeconds := VerificationElapsedSeconds + CycleTimeSeconds;
++    CandidateMinimum := MIN(CandidateMinimum, SelectedPressure);
++    IF PumpOff AND ReleasePathsClosed THEN
++        ClosedCoastSeconds := ClosedCoastSeconds + CycleTimeSeconds;
++    ELSE
++        ClosedCoastSeconds := 0.0;
++        ReferenceSet := FALSE;
++        ReferenceElapsed := 0.0;
++    END_IF;
++    IF (ClosedCoastSeconds >= CoastSeconds) AND NOT ReferenceSet THEN
++        ReferenceA := FilteredA;
++        ReferenceB := FilteredB;
++        ReferencePressure := SelectedPressure;
++        ReferenceElapsed := 0.0;
++        ReferenceSet := TRUE;
++    ELSIF ReferenceSet THEN
++        ReferenceElapsed := ReferenceElapsed + CycleTimeSeconds;
++    END_IF;
++    ReleaseEvidence := ReferenceSet AND PumpOff AND ReleasePathsClosed AND (ReferenceElapsed >= ObserveSeconds) AND (DropRatePSIperSec >= ReleaseRatePSIperSec) AND (NOT PortAActive OR ((ReferenceA - FilteredA) >= ReleaseDropPSI)) AND (NOT PortBActive OR ((ReferenceB - FilteredB) >= ReleaseDropPSI));
++    LossAllowed := MAX(MaximumShearLossPSI, CandidatePressurePSI * MaximumShearLossFraction);
++    SettledEvidence := ReferenceSet AND PumpOff AND ReleasePathsClosed AND (ReferenceElapsed >= ObserveSeconds) AND (ABS(DropRatePSIperSec) <= SettledRatePSIperSec) AND (ABS(ReferencePressure - SelectedPressure) <= SettledDropPSI) AND (NOT PortAActive OR (ABS(ReferenceA - FilteredA) <= SettledDropPSI)) AND (NOT PortBActive OR (ABS(ReferenceB - FilteredB) <= SettledDropPSI)) AND (CandidateMinimum >= MinimumResidualPSI) AND ((CandidatePressurePSI - CandidateMinimum) <= LossAllowed);
++    IF ReleaseEvidence THEN
++        ReleaseConfirmed := TRUE;
++        EventClassification := 'First ramp: sustained release confirmed';
++        State := 100;
++    ELSIF SettledEvidence THEN
++        PossibleShearCaptured := TRUE;
++        PossibleShearCount := PossibleShearCount + 1;
++        ShearPressurePSI := CandidatePressurePSI;
++        ShearDropPSI := CandidatePressurePSI - CandidateMinimum;
++        ShearTimeSeconds := CandidateTimeSeconds;
++        EventClassification := 'Possible shear/transient: settled after isolation';
++        WatchPeak := SelectedPressure;
++        WatchPeakA := FilteredA;
++        WatchPeakB := FilteredB;
++        CheckActive := FALSE;
++        Armed := FALSE;
++        ArmElapsed := 0.0;
++        DropElapsed := 0.0;
++        RetrySeconds := 1.0;
++        State := 0;
++    ELSIF VerificationElapsedSeconds >= VerificationTimeoutSeconds THEN
++        Fault := TRUE;
++        FailureReason := 'First Ramp Pressure Loss - Opening Not Confirmed';
++        EventClassification := 'Unconfirmed first-ramp pressure loss';
++        State := 900;
++    END_IF;
++100:
++    CheckActive := TRUE;
++900:
++    CheckActive := TRUE;
++END_CASE;
++]]></ST></Implementation>
++  </POU>
++</TcPlcObject>

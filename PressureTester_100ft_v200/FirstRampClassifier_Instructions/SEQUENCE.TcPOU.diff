@@ -1,0 +1,3546 @@
+--- PressureTester - 100ft Single v100/test/FrontSide/POUs/POUs/SEQUENCE.TcPOU
++++ PressureTester - 100ft Single v100/test/FrontSide/POUs/POUs/SEQUENCE.TcPOU
+@@ -1,1757 +1,1788 @@
+-<?xml version="1.0" encoding="utf-8"?>
+-<TcPlcObject Version="1.1.0.1" ProductVersion="3.1.4024.12">
+-  <POU Name="SEQUENCE" Id="{8768afbe-637f-4e03-8f28-077bb69e6ed2}" SpecialFunc="None">
+-    <Declaration><![CDATA[PROGRAM SEQUENCE
+-VAR
+-	state					: INT := 0;
+-	
+-	fbPressurize			: FB_Pressurize;
+-	fbStabilize				: FB_Stabilize;
+-	fbPressureHold			: FB_PressureHold;
+-	fbDepressurize			: FB_Depressurize;
+-	fbCyclePressureTest		: FB_CyclePressureTest;
+-	fbValveOpeningDetector : FB_ValveOpeningDetector;
+-	fbShearTest				: FB_ShearTest;
+-	fbVPPMHigh				: FB_VPPMPID;
+-	fbVPPMLow				: FB_VPPMPID;
+-	fbCycleRampShear 		: FB_ShearTest;
+-	CycleRampDropPSI 		: LREAL := 100.0;
+-	CycleRampDropConfirmTime : TIME := T#150MS;
+-	testVPPM				: INT;
+-	testDiff				: REAL;
+-	CurrentTargetPressure	: LREAL;
+-	CurrentTestDuration		: TIME;
+-	MinPressure				: LREAL;
+-	MaxPressure				: LREAL;
+-	MaxVariance				: REAL;
+-	MinVariance				: REAL;
+-	FillTargetPressure		: LREAL;
+-	LowHighTestActive		: BOOL;
+-	LowTestComplete			: BOOL;
+-	RepressurizeUsed		: BOOL;
+-	SequenceActive			: BOOL;
+-	ShearTestActive 		: BOOL;
+-	RateIncreaseTolerance	: REAL;
++<?xml version="1.0" encoding="utf-8"?>
++<TcPlcObject Version="1.1.0.1" ProductVersion="3.1.4024.12">
++  <POU Name="SEQUENCE" Id="{8768afbe-637f-4e03-8f28-077bb69e6ed2}" SpecialFunc="None">
++    <Declaration><![CDATA[PROGRAM SEQUENCE
++VAR
++	state					: INT := 0;
++	
++	fbPressurize			: FB_Pressurize;
++	fbStabilize				: FB_Stabilize;
++	fbPressureHold			: FB_PressureHold;
++	fbDepressurize			: FB_Depressurize;
++	fbCyclePressureTest		: FB_CyclePressureTest;
++	fbValveOpeningDetector : FB_ValveOpeningDetector;
++	fbShearTest				: FB_ShearTest;
++    fbFirstRampEvent : FB_FirstRampEventClassifier;
++    CycleFirstRampActive : BOOL;
++	fbVPPMHigh				: FB_VPPMPID;
++	fbVPPMLow				: FB_VPPMPID;
++	fbCycleRampShear 		: FB_ShearTest;
++	CycleRampDropPSI 		: LREAL := 100.0;
++	CycleRampDropConfirmTime : TIME := T#150MS;
++	testVPPM				: INT;
++	testDiff				: REAL;
++	CurrentTargetPressure	: LREAL;
++	CurrentTestDuration		: TIME;
++	MinPressure				: LREAL;
++	MaxPressure				: LREAL;
++	MaxVariance				: REAL;
++	MinVariance				: REAL;
++	FillTargetPressure		: LREAL;
++	LowHighTestActive		: BOOL;
++	LowTestComplete			: BOOL;
++	RepressurizeUsed		: BOOL;
++	SequenceActive			: BOOL;
++	ShearTestActive 		: BOOL;
++	RateIncreaseTolerance	: REAL;
+ 	ValveOpenDetected		: BOOL;
+-    EnableManualValveOpeningSimulation : BOOL := FALSE; // Commissioning only; keep FALSE for acceptance tests.
+-	TestPassed				: BOOL;
+-	TestFailed				: BOOL;
+-	TestPeakPress			: TIME;
+-	PumpManualCmd			: BOOL;
+-	HMIStartTestPH			: BOOL;
+-	FailureReason			: STRING(255);
+-	
+-	ManualTestTimer 		: TON;
+-	TestElapsedTimer 		: TON;
+-	TestElapsed				: TIME;
+-
+-	Auto_PumpCmd			: BOOL;
+-	Auto_DumpValveACmd		: BOOL;
+-	Auto_DumpValveBCmd		: BOOL;
+-	Auto_BleedValveACmd		: BOOL;
+-	Auto_BleedValveBCmd		: BOOL;
+-	Auto_PortABlockValveCmd	: BOOL;
+-	Auto_PortBBlockValveCmd	: BOOL;
+-	LowPressureTarget: LREAL;
+-
+-	// Learned near-target air correction, XHBV only (not retained).
+-	CycleApproachLearnEnable : BOOL := TRUE;
+-	CycleApproachMaxAirPSI : LREAL := 0.20;
+-	CycleApproachLearnedAirPSI : LREAL;
+-	CycleApproachAppliedAirPSI : LREAL;
+-	CycleApproachCandidateAirPSI : LREAL;
+-	CycleApproachCandidateValid : BOOL;
+-	CycleApproachHoldPeakPSI : LREAL;
+-	CycleApproachBlend : LREAL;
+-	CycleApproachErrorPSI : LREAL;
+-	CycleApproachStateBefore : INT;
+-	CycleApproachLastITerm : LREAL;
+-	CycleApproachLastTrim : LREAL;
+-	CycleApproachLastValid : BOOL;
+-	CycleApproachActive : BOOL;
+-	CycleApproachPreviousActive : BOOL;
+-	CycleApproachSavedUpperHigh : LREAL;
+-	CycleApproachSavedLowerHigh : LREAL;
+-	CycleApproachSavedUpperLow : LREAL;
+-	CycleApproachSavedLowerLow : LREAL;
+-	CycleApproachSavedHoldTime : TIME;
+-	CycleApproachSavedPortA : BOOL;
+-	CycleApproachSavedPortB : BOOL;
+-    // Startup/rearm for the independent cycle ramp shear instance.
+-    CycleRampStartupTime : TIME := T#500MS;
+-    CycleRampMinimumArmPSI : LREAL := 500.0;
+-    CycleRampArmed : BOOL;
+-    CycleRampPhase : BOOL;
+-    CycleRampSignalValid : BOOL;
+-    CycleRampPeakA : LREAL;
+-    CycleRampPeakB : LREAL;
+-    tCycleRampStartup : TON;
+-END_VAR]]></Declaration>
+-    <Implementation>
+-      <ST><![CDATA[ //**************************************************************
+-// Function Block Calls
+-//**************************************************************
+-
+-//******************
+-// Pressurization
+-//******************
+-fbPressurize(Execute := state = 200,
+-			Abort := bAbortSequence OR HMI_StopTest,
+-			PressureA := PortACurrentPSI,
+-			PressureB := PortBCurrentPSI,
+-			PortA_Active := PortA_Active,
+-			PortB_Active := PortB_Active,
+-			MinPressure := MinPressure,
+-			MaxPressure := MaxPressure,
+-			FillTarget := FillTargetPressure, //CurrentTargetPressure,
+-			PressureDwell := LoadedRecipe.PressStabilizeDwell,
+-			IsolationDwell := T#2S,
+-			AirOK := Safety_HPP1AirStatus
+-);
+-
+-//******************
+-// Stabilization
+-//******************
+-fbStabilize(Execute := state = 300,
+-			Abort := bAbortSequence OR HMI_StopTest,
+-			SystemPressure := SystemPressure,
+-			TargetMinPressure := MinPressure,
+-			TargetMaxPressure := MaxPressure,
+-			MaxStableVariance := LoadedRecipe.MaxStableVariance,
+-			MinStableVariance := LoadedRecipe.MinStableVariance,
+-			StabilizeDwell := LoadedRecipe.PressStabilizeDwell,
+-			TestDurationMinutes := HMI_TestDuration,
+-			CheckPressureTrend := TRUE,
+-			RequireProjectedPass := TRUE
+-);
+-
+-
+-//******************
+-// Pressure Hold
+-//******************
+-fbPressureHold(
+-	Execute := state = 400,
+-	Abort := bAbortSequence OR HMI_StopTest,
+-	SystemPressure := SystemPressure,
+-	HeaderPressure := HeaderCurrentPSI,
+-	TargetMinPressure := MinPressure,
+-	TargetMaxPressure := MaxPressure,
+-	PortAPressure := PortACurrentPSI,
+-	PortBPressure := PortBCurrentPSI,
+-	HoldMinPressure := fbStabilize.StableMinPressure,
+-	HoldMaxPressure := fbStabilize.StableMaxPressure,
+-	HoldTime := CurrentTestDuration
+-);
+-
+-
+-//******************
+-// Depressurization
+-//******************
+-fbDepressurize(Execute := state = 800,
+-			Abort := FALSE,
+-			PressureA := PortACurrentPSI,
+-			PressureB := PortBCurrentPSI,
+-			PortA_Active := PortA_Active,
+-			PortB_Active := PortB_Active,
+-			SafePressure := 100.0,
+-			ZeroPressure := 25.0,
+-			RequireZero := TRUE,
+-			Timeout := T#5M
+-);
+-
+-//******************
+-// Cycle Test - Ramp Monitor
+-//******************
+-// Monitor pressure buildup during each XHBV cycle.
+-CycleRampPhase := (state = 600) AND (fbCyclePressureTest.State = 20)
+-    AND NOT bAbortSequence AND NOT HMI_StopTest AND Safety_HPP1AirStatus
+-    AND HMI_EStopOK AND NOT PumpManualCmd;
+-CycleRampSignalValid := (NOT PortA_Active OR ((PT[101].RawMax > PT[101].RawMin)
+-    AND NOT MAIN.PortAPressureFB.OverRange AND (MAIN.PortAPressureFB.RawPSI >= -100.0)))
+-    AND (NOT PortB_Active OR ((PT[102].RawMax > PT[102].RawMin)
+-    AND NOT MAIN.PortBPressureFB.OverRange AND (MAIN.PortBPressureFB.RawPSI >= -100.0)))
+-    AND (PortA_Active OR PortB_Active);
+-tCycleRampStartup(
+-    IN := CycleRampPhase AND CycleRampSignalValid AND fbCyclePressureTest.Pump
+-        AND NOT fbValveOpeningDetector.CloseBleedRequest
+-        AND NOT fbValveOpeningDetector.CandidateRejected AND NOT fbCycleRampShear.Error,
+-    PT := CycleRampStartupTime);
+-IF NOT CycleRampPhase OR NOT CycleRampSignalValid
+-    OR fbValveOpeningDetector.CandidateRejected OR fbCycleRampShear.Error THEN
+-    CycleRampArmed := FALSE;
+-ELSIF tCycleRampStartup.Q AND (fbValveOpeningDetector.SelectedPressure >= CycleRampMinimumArmPSI) THEN
+-    CycleRampArmed := TRUE;
+-END_IF;
+-
+-// Preserve channel pressures at the selected-pressure peak, before the shear call.
+-// These are from the same lightly filtered sample as CurrentPressure below.
+-IF NOT CycleRampArmed OR (fbCycleRampShear.State = 0)
+-    OR ((fbCycleRampShear.State = 10)
+-        AND (fbValveOpeningDetector.SelectedPressure > fbCycleRampShear.PeakPressure)) THEN
+-    CycleRampPeakA := fbValveOpeningDetector.FastPressureA;
+-    CycleRampPeakB := fbValveOpeningDetector.FastPressureB;
+-END_IF;
+-fbCycleRampShear(
+-    Execute := CycleRampPhase AND CycleRampArmed AND CycleRampSignalValid,
+-    Abort := bAbortSequence OR HMI_StopTest OR fbValveOpeningDetector.CandidateRejected
+-        OR fbCycleRampShear.Error,
+-    CurrentPressure := fbValveOpeningDetector.SelectedPressure,
+-    TargetPressure := LoadedRecipe.CycleUpperHighPressure,
+-    DropThreshold := CycleRampDropPSI,
+-    DropConfirmTime := CycleRampDropConfirmTime,
+-    MaxTestTime := T#5M,
+-    AirOK := Safety_HPP1AirStatus
+-);
+-
+-//******************
+-// Cycle Test - Valve Monitor
+-//******************
+-// Valve opening detector: BEFORE fbCyclePressureTest, so confirmation reaches
+-// its pass/fail logic in this scan. Observe previous-scan actual output commands.
+-fbValveOpeningDetector(
+-    Enable := state = 600,
+-    Reset := (state = 100) OR ((state = 600) AND (fbCyclePressureTest.State = 0))
+-        OR bAbortSequence OR HMI_StopTest,
+-    CycleState := fbCyclePressureTest.State,
+-    CompletedCycleCount := fbCyclePressureTest.CycleCount,
+-    PressureA := MAIN.PortAPressureFB.RawPSI,
+-    PressureB := MAIN.PortBPressureFB.RawPSI,
+-    PortAActive := PortA_Active,
+-    PortBActive := PortB_Active,
+-    BleedOpenA := NOT O_BleedValveA,
+-    BleedOpenB := NOT O_BleedValveB,
+-    DumpsClosed := (NOT PortA_Active OR O_DumpValveA)
+-        AND (NOT PortB_Active OR O_DumpValveB),
+-    PumpOff := NOT fbCyclePressureTest.Pump AND NOT PumpManualCmd,
+-    SensorDataValid := (NOT PortA_Active OR ((PT[101].RawMax > PT[101].RawMin)
+-        AND NOT MAIN.PortAPressureFB.OverRange AND (MAIN.PortAPressureFB.RawPSI >= -100.0)))
+-        AND (NOT PortB_Active OR ((PT[102].RawMax > PT[102].RawMin)
+-        AND NOT MAIN.PortBPressureFB.OverRange AND (MAIN.PortBPressureFB.RawPSI >= -100.0))),
+-    // Add actual terminal/communication health to the expression above when mapped.
+-    DetectionFilterAlpha := 0.20,
+-    LowPressureMin := LoadedRecipe.CycleLowerLowPressure,
+-    CycleTimeSeconds := 0.005,
+-    SampleSeconds := 0.050,
+-    CoastSeconds := 0.80,
+-    CoastAllowancePSI := 200.0,
+-    ConfirmSeconds := 0.30,
+-    ConfirmDropPSI := 75.0,
+-    VerificationTimeoutSeconds := 2.0,
+-	PressurizingMode := CycleRampPhase,
+-    ExternalCandidatePressurePSI := fbCycleRampShear.ShearPressure,
+-    ExternalCandidatePressureA := CycleRampPeakA,
+-    ExternalCandidatePressureB := CycleRampPeakB,
+-	ExternalCandidate := fbCycleRampShear.ShearDetected,
+-);
+-
+-// Snapshot BEFORE the cycle FB can stop the pump and the PID can reset.
+-CycleApproachStateBefore := fbCyclePressureTest.State;
+-CycleApproachLastITerm := fbVPPMHigh.ITerm;
+-CycleApproachLastTrim := CycleApproachAppliedAirPSI;
+-CycleApproachLastValid := fbVPPMHigh.Busy AND NOT fbVPPMHigh.Error
+-    AND fbCyclePressureTest.Pump AND NOT fbVPPMHigh.OutputHighLimited
+-    AND NOT fbVPPMHigh.OutputLowLimited;
+-CycleApproachActive := CycleApproachLearnEnable AND (state = 600)
+-    AND NOT bAbortSequence AND NOT HMI_StopTest AND HMI_EStopOK
+-    AND Safety_HPP1AirStatus AND NOT PumpManualCmd
+-    AND (CurrentTargetPressure > PumpSwapSetpoint);
+-
+-// Start each new test/configuration with the existing controller behavior.
+-IF NOT CycleApproachActive OR NOT CycleApproachPreviousActive
+-    OR (LoadedRecipe.CycleUpperHighPressure <> CycleApproachSavedUpperHigh)
+-    OR (LoadedRecipe.CycleLowerHighPressure <> CycleApproachSavedLowerHigh)
+-    OR (LoadedRecipe.CycleUpperLowPressure <> CycleApproachSavedUpperLow)
+-    OR (LoadedRecipe.CycleLowerLowPressure <> CycleApproachSavedLowerLow)
+-    OR (LoadedRecipe.CyclePressureHoldTime <> CycleApproachSavedHoldTime)
+-    OR (PortA_Active <> CycleApproachSavedPortA)
+-    OR (PortB_Active <> CycleApproachSavedPortB)
+-THEN
+-    CycleApproachLearnedAirPSI := 0.0;
+-    CycleApproachCandidateAirPSI := 0.0;
+-    CycleApproachCandidateValid := FALSE;
+-    CycleApproachHoldPeakPSI := 0.0;
+-    CycleApproachLastValid := FALSE;
+-END_IF;
+-CycleApproachPreviousActive := CycleApproachActive;
+-CycleApproachSavedUpperHigh := LoadedRecipe.CycleUpperHighPressure;
+-CycleApproachSavedLowerHigh := LoadedRecipe.CycleLowerHighPressure;
+-CycleApproachSavedUpperLow := LoadedRecipe.CycleUpperLowPressure;
+-CycleApproachSavedLowerLow := LoadedRecipe.CycleLowerLowPressure;
+-CycleApproachSavedHoldTime := LoadedRecipe.CyclePressureHoldTime;
+-CycleApproachSavedPortA := PortA_Active;
+-CycleApproachSavedPortB := PortB_Active;
+-
+-fbCyclePressureTest(Execute := state = 600,
+-			Abort := bAbortSequence OR HMI_StopTest,
+-			SystemPressure := SystemPressure,
+-			PressureA := PortACurrentPSI,
+-			PressureB := PortBCurrentPSI,
+-			PortA_Active := PortA_Active,
+-			PortB_Active := PortB_Active,
+-			LowPressureHigh := LoadedRecipe.CycleUpperLowPressure,
+-			HighPressureHigh := LoadedRecipe.CycleUpperHighPressure,
+-			LowPressureLow := LoadedRecipe.CycleLowerLowPressure,
+-			HighPressureLow := LoadedRecipe.CycleLowerHighPressure,
+-			TargetCycleCount := LoadedRecipe.CyclePinningNumber,
+-			CycleVariation := LoadedRecipe.CycleVariation,
+-			HoldTime := LoadedRecipe.CyclePressureHoldTime,
+-			ValveOpeningCandidateRejected := fbValveOpeningDetector.CandidateRejected,
+-			ValveOpenDetected := fbValveOpeningDetector.Detected
+-                OR (EnableManualValveOpeningSimulation AND ValveOpenDetected),
+-			ValveOpeningCheckActive := fbValveOpeningDetector.CloseBleedRequest,
+-			EnableLegacyValveOpeningDetection := FALSE,
+-			AirOK := Safety_HPP1AirStatus,
+-			LowPressureTarget := (LoadedRecipe.CycleLowerLowPressure + LoadedRecipe.CycleUpperLowPressure) * 0.5,
+-);
+-
+-
+-// Only a completed, in-range HIGH HOLD may teach the next ramp.
+-IF CycleApproachActive AND NOT fbCyclePressureTest.Failed
+-    AND NOT fbCyclePressureTest.Error THEN
+-    IF (CycleApproachStateBefore = 20) AND (fbCyclePressureTest.State = 30) THEN
+-        CycleApproachCandidateValid := CycleApproachLastValid;
+-        // Learn the steady correction, excluding proportional/derivative terms.
+-        // Include the previous trim to avoid forgetting correction already applied.
+-        CycleApproachCandidateAirPSI := LIMIT(0.0,
+-            0.5 * (CycleApproachLastITerm + CycleApproachLastTrim),
+-            LIMIT(0.0, CycleApproachMaxAirPSI, 0.20));
+-        CycleApproachHoldPeakPSI := SystemPressure;
+-    END_IF;
+-    IF (CycleApproachStateBefore = 30) OR (fbCyclePressureTest.State = 30) THEN
+-        CycleApproachHoldPeakPSI := MAX(CycleApproachHoldPeakPSI, SystemPressure);
+-        IF (SystemPressure < LoadedRecipe.CycleLowerHighPressure)
+-            OR (SystemPressure > LoadedRecipe.CycleUpperHighPressure) THEN
+-            CycleApproachCandidateValid := FALSE;
+-            CycleApproachLearnedAirPSI := 0.0;
+-        END_IF;
+-    END_IF;
+-    IF (CycleApproachStateBefore = 30) AND (fbCyclePressureTest.State = 50) THEN
+-        IF CycleApproachCandidateValid THEN
+-            CycleApproachLearnedAirPSI := CycleApproachCandidateAirPSI;
+-        END_IF;
+-        CycleApproachCandidateValid := FALSE;
+-    END_IF;
+-ELSE
+-    CycleApproachLearnedAirPSI := 0.0;
+-    CycleApproachCandidateValid := FALSE;
+-END_IF;
+-
+-// Blend from zero at 300 PSI error to full trim at 100 PSI error.
+-// Existing PID feedback, slew limits and high-pressure stop remain in control.
+-CycleApproachAppliedAirPSI := 0.0;
+-CycleApproachBlend := 0.0;
+-CycleApproachErrorPSI := CurrentTargetPressure - SystemPressure;
+-IF CycleApproachActive AND (fbCyclePressureTest.State = 20)
+-    AND fbCyclePressureTest.Pump AND (CycleApproachErrorPSI > 0.0) THEN
+-    CycleApproachBlend := LIMIT(0.0, (300.0 - CycleApproachErrorPSI) / 200.0, 1.0);
+-    CycleApproachAppliedAirPSI := CycleApproachBlend * LIMIT(0.0,
+-        CycleApproachLearnedAirPSI, LIMIT(0.0, CycleApproachMaxAirPSI, 0.20));
+-END_IF;
+-
+-//******************
+-// Shear Test
+-//******************
+-fbShearTest(Execute := ShearTestActive
+-					AND ((state = 200)
+-					OR 	(state = 300)
+-					OR 	(state = 650)),
+-			Abort := bAbortSequence OR HMI_StopTest,
+-			CurrentPressure := SystemPressure,
+-			TargetPressure := LoadedRecipe.ShearTestPressure,
+-			DropThreshold := LoadedRecipe.ShearDropThreshold,
+-			DropConfirmTime := LoadedRecipe.ShearDropConfirmTime,
+-			MaxTestTime := LoadedRecipe.ShearMaxTestTime,
+-			AirOK := Safety_HPP1AirStatus)
+-;
+-
+-
+-//******************
+-// VPPM Control - High Pressure   state = 600
+-//******************
+-VPPMHighActualPSI := INT_TO_LREAL(VPPMHighActualRaw) / 10.0;			
+-fbVPPMHigh(Enable := fbPressurize.Pump 
+-					OR (fbCyclePressureTest.Pump)
+-					//OR (state = 190)
+-					//OR (state = 195)
+-					OR PumpManualCmd,
+-	Reset := (state <> 200) AND (state <> 600),
+-	HydraulicSetpoint := CurrentTargetPressure,
+-	HydraulicActual := SystemPressure,
+-	PneumaticActual := VPPMHighActualPSI,
+-	PumpRatio := GVL.HIGH_PUMP_RATIO,
+-	FeedForwardTrimAirPSI := CycleApproachAppliedAirPSI,
+-	SetpointBias := 0.0,
+-	HydraulicHighLimit := MAX_HIGH_PRESSURE_PSI,
+-	PneumaticMin := 0.0,
+-	PneumaticMax := 90.0,
+-	Kp := 0.004,
+-	Ti := SEL(state = 600, 5.0, 20.0), // 55.0 for Cycle Test
+-	Td := 0.75, //  3.75 for Cycle Test
+-	IntegralEnable := ABS(CurrentTargetPressure - SystemPressure) <= 300.0,
+-	CycleTime := 0.005,
+-	FilterAlpha := 0.80,
+-	Deadband := SEL(state = 600, 0.0, 5.0),
+-	MaxRiseRate := 25.0,
+-	MaxFallRate := 100.0,
+-	PneumaticTrackingTolerance := 3.0,
+-	PneumaticTrackingDelay := T#2S,
+-	EnableTrackingFault := FALSE	
+-);
+-
+-
+-//******************
+-// VPPM Control - Low Pressure   (state <> 200) AND (state <> 600),
+-//******************
+-VPPMLowActualPSI := INT_TO_LREAL(VPPMLowActualRaw) / 10.0;			
+-fbVPPMLow(Enable := fbPressurize.Pump 
+-					OR (fbCyclePressureTest.Pump)
+-					//OR (state = 190)
+-					//OR (state = 195)
+-					OR PumpManualCmd,
+-	Reset := FALSE,
+-	HydraulicSetpoint := CurrentTargetPressure,
+-	HydraulicActual := PortACurrentPSI,
+-	PneumaticActual := VPPMLowActualPSI,
+-	PumpRatio := GVL.LOW_PUMP_RATIO,
+-	SetpointBias := 15.0,
+-	HydraulicHighLimit := 2660,
+-	PneumaticMin := 0.0,
+-	PneumaticMax := 90.0,
+-	Kp := 0.04,
+-	Ti := 400.0, //18.0
+-	Td := 3.25,
+-	CycleTime := 0.010,
+-	FilterAlpha := 0.80,
+-	Deadband := 5.0,
+-	MaxRiseRate := 25.0,
+-	MaxFallRate := 25.0,
+-	PneumaticTrackingTolerance := 3.0,
+-	PneumaticTrackingDelay := T#2S,
+-	EnableTrackingFault := FALSE	
+-);
+-
+-//**************************************************************
+-// Test Elapsed Timer - Time to pressurize, perform test and depressurize.
+-//**************************************************************
+-TestElapsedTimer(
+-		IN := SequenceActive AND NOT HMI_TestingCompleted,
+-		PT := T#5H	);
+-IF TestElapsedTimer.ET > DINT_TO_TIME(HMI_ExecutedTestTime) THEN
+-TestElapsed := TestElapsedTimer.ET;
+-HMI_ExecutedTestTime := TIME_TO_DINT(TestElapsedTimer.ET);
+-END_IF
+-
+-
+-//**************************************************************
+-// Main Sequence
+-//**************************************************************
+-
+-CASE state OF
+-
+-
+-//******************
+-// Waiting for Test
+-//******************
+-0:
+-	HMI_StateName := 'STEP 0 - System Ready';
+-	TestPassed := FALSE;
+-	TestFailed := FALSE;
+-	FailureReason := '';
+-	LowHighTestActive := FALSE;
+-	LowTestComplete := FALSE;
+-	RepressurizeUsed := FALSE;
+-	Auto_PumpCmd := FALSE;
+-	IF NOT Safety_I_MachineIsReset THEN
+-		state := 999;
+-	ELSIF HMI_StartTest AND HMI_GatheringData AND bOkForHighPressureA THEN
+-		HMI_Message := '';
+-		state := 100;
+-	ELSIF HMI_DepressurizeSystem THEN
+-		state := 800;
+-	END_IF
+-
+-
+-//******************
+-// Load Recipe / Select Test Type
+-//******************
+-100:
+-	HMI_StateName := 'STEP 100 - Loading Test';
+-	LOADRECIPE();
+-	TestPassed := FALSE;
+-	TestFailed := FALSE;
+-	FailureReason := '';
+-	RepressurizeUsed := FALSE;
+-	HMI_HeaderEndPressureLow := 0;
+-	HMI_PortAEndPressureLow := 0;
+-	HMI_PortBEndPressureLow := 0;
+-	HMI_HeaderEndPressureHigh := 0;
+-	HMI_PortAEndPressureHigh := 0;
+-	HMI_PortBEndPressureHigh := 0;
+-	HMI_LowTestElapsedTime := 0;
+-	HMI_HighTestElapsedTime := 0;
+-
+-	//******************
+-	// Manual Mode Selection
+-	//******************
+-	IF ActiveRecipe.RecipeName = '' THEN
+-		HMIStartTestPH := TRUE;
+-		state := 190;	//Manual mode
+-	ELSE
+-	//******************
+-	// Low Pressure Body Test
+-	//******************
+-	IF HMI_RecipeType = 'Low Pressure Test' THEN
+-		LowHighTestActive := FALSE;
+-		CurrentTargetPressure := LoadedRecipe.LowTestPressure;
+-		CurrentTestDuration := DINT_TO_TIME(LoadedRecipe.LowTestDuration * 60000);
+-		HMI_HeaderStartPressureHigh := 0;
+-		HMI_PortAStartPressureHigh := 0;
+-		HMI_PortBStartPressureHigh := 0;
+-		HMI_HeaderEndPressureHigh := 0;
+-		HMI_PortAEndPressureHigh := 0;
+-		HMI_PortBEndPressureHigh := 0;
+-		HMI_HeaderCurrentPressureDropHigh	:= 0;
+-		HMI_PortACurrentPressureDropHigh	:= 0;
+-		HMI_PortBCurrentPressureDropHigh	:= 0;
+-		state := 110;
+-
+-
+-	//******************
+-	// High Pressure Body Test
+-	//******************
+-	ELSIF HMI_RecipeType ='High Pressure Test' THEN
+-		LowHighTestActive := FALSE;
+-		CurrentTargetPressure := LoadedRecipe.HighTestPressure;
+-		CurrentTestDuration := DINT_TO_TIME(LoadedRecipe.HighTestDuration * 60000);
+-		HMI_HeaderStartPressureLow := 0;
+-		HMI_PortAStartPressureLow 	:= 0;
+-		HMI_PortBStartPressureLow 	:= 0;
+-		HMI_HeaderEndPressureLow 	:= 0;
+-		HMI_PortAEndPressureLow 	:= 0;
+-		HMI_PortBEndPressureLow 	:= 0;
+-		HMI_HeaderCurrentPressureDropLow	:= 0;
+-		HMI_PortACurrentPressureDropLow		:= 0;
+-		HMI_PortBCurrentPressureDropLow		:= 0;
+-		state := 110;
+-
+-
+-	//******************
+-	// Combined Low + High Body Test
+-	//******************
+-	ELSIF HMI_RecipeType = 'Low and High Pressure Test' THEN
+-		LowHighTestActive := TRUE;
+-		LowTestComplete := FALSE;
+-		IF LowHighTestActive AND NOT LowTestComplete THEN
+-			CurrentTargetPressure := LoadedRecipe.LowTestPressure;
+-			CurrentTestDuration := DINT_TO_TIME(LoadedRecipe.LowTestDuration * 60000);
+-		ELSE
+-			CurrentTargetPressure := LoadedRecipe.HighTestPressure;
+-			CurrentTestDuration := DINT_TO_TIME(LoadedRecipe.HighTestDuration * 60000);
+-		END_IF
+-		state := 110;
+-
+-		
+-	//******************
+-	// Shear Test
+-	//******************
+-	ELSIF HMI_RecipeType = 'Shear Test' THEN
+-		ShearTestActive := TRUE;
+-		CurrentTargetPressure := LoadedRecipe.ShearTestPressure;
+-		CurrentTestDuration := LoadedRecipe.ShearMaxTestTime;
+-		HMI_ShearPressure := 0.0;
+-		HMI_ShearTime := T#0S;
+-		state := 110;
+-	
+-
+-	//******************
+-	// XHBV Cycle Test
+-	//******************
+-	ELSIF HMI_RecipeType = 'XHBV Test' THEN
+-		CurrentTargetPressure := LoadedRecipe.CycleUpperHighPressure;
+-		CurrentTestDuration := LoadedRecipe.CyclePressureHoldTime;
+-		state := 600;
+-	ELSE
+-		TestFailed := TRUE;
+-		FailureReason := 'Invalid Test Recipe';
+-		state := 900;
+-	END_IF
+-END_IF
+-
+-//******************
+-// Calculate Test Limits
+-//******************
+-110:
+-	HMI_StateName := 'STEP 110 - Calculate Test Parameters';
+-	RepressurizeUsed := FALSE;
+-	IF CurrentTargetPressure <= 0.0 THEN
+-		TestFailed := TRUE;
+-		FailureReason := 'Invalid Test Pressure';
+-		state := 900;
+-	ELSE
+-
+-		//******************
+-		// Low Pressure Test
+-		// Fixed PSI tolerance
+-		//******************
+-		IF CurrentTargetPressure <= 1000.0 THEN
+-			MaxPressure := CurrentTargetPressure + LoadedRecipe.MaxTargetPressure;
+-			MinPressure := CurrentTargetPressure - LoadedRecipe.MinTargetPressure;
+-			MaxVariance := LoadedRecipe.MaxStableVariance;
+-			MinVariance := LoadedRecipe.MinStableVariance;
+-
+-
+-		//******************
+-		// High Pressure Test
+-		// Percentage tolerance
+-		//******************
+-		ELSE
+-			MaxPressure := CurrentTargetPressure * (1.0 + LoadedRecipe.HighMaxTargetPressure / 100.0);
+-			MinPressure := CurrentTargetPressure * (1.0 - LoadedRecipe.HighMinTargetPressure / 100.0);
+-			MaxVariance := LoadedRecipe.HighMaxStableVar;
+-			MinVariance := LoadedRecipe.HighMinStableVare;
+-		END_IF
+-
+-
+-		//******************
+-		// Aim toward upper side of window
+-		//******************
+-		FillTargetPressure := CurrentTargetPressure ;
+-		state := 200;
+-	END_IF	
+-
+-//******************
+-// Manual Operation
+-//******************
+-190:
+-	HMI_StateName := 'STEP 190 - Manual Operation';
+-	HMI_Message := 'Manual Controls Active';
+-
+-	HMI_InCycle := FALSE;
+-
+-	//Operator remains in full manual control here
+-	ManualTestTimer(
+-		IN := FALSE,
+-		PT := T#0S	);
+-
+-	HMI_ExecutedTestTime := 0;
+-	HMI_TimeRemainingInTest := TIME_TO_DINT(CurrentTestDuration);
+-
+-	IF HMI_StartTest OR HMIStartTestPH THEN
+-		HMI_StartTest := FALSE;
+-		HMIStartTestPH := FALSE;
+-		//Convert operator-entered duration if HMI duration is minutes
+-		CurrentTestDuration := DINT_TO_TIME(HMI_TestDuration * 60000);
+-		HMI_PortAStartPressure := LREAL_TO_REAL(PortACurrentPSI);
+-		HMI_PortBStartPressure := LREAL_TO_REAL(PortBCurrentPSI);
+-		HMI_HeaderStartPressure := LREAL_TO_REAL(HeaderCurrentPSI);
+-		HMI_InCycle := TRUE;
+-
+-		state := 195;
+-
+-	END_IF
+-	
+-
+-//******************
+-//  Manual Timed Test
+-//******************
+-195:
+-	HMI_StateName := 'STEP 195 - Manual Test';
+-	HMI_Message := 'Manual Test In Progress';
+-	HMI_InCycle := TRUE;
+-	ManualTestTimer(
+-		IN := TRUE,
+-		PT := CurrentTestDuration);
+-
+-	HMI_ExecutedTestTime :=	TIME_TO_DINT(ManualTestTimer.ET);
+-
+-	IF CurrentTestDuration >= ManualTestTimer.ET THEN
+-		HMI_TimeRemainingInTest := TIME_TO_DINT(CurrentTestDuration - ManualTestTimer.ET);
+-	ELSE
+-		HMI_TimeRemainingInTest := 0;
+-	END_IF
+-
+-
+-	//Operator can still manually control valves/pump
+-	//while this timer is running.
+-	IF HMI_StopTest THEN
+-		ManualTestTimer(
+-			IN := FALSE,
+-			PT := CurrentTestDuration);
+-
+-		HMI_StopTest := FALSE;
+-		TestPassed := FALSE;
+-		HMI_Message := 'Manual Test Stopped';
+-		state := 197;
+-
+-	ELSIF ManualTestTimer.Q THEN
+-		ManualTestTimer(
+-			IN := FALSE,
+-			PT := CurrentTestDuration);
+-		HMI_ExecutedTestTime := TIME_TO_DINT(CurrentTestDuration);
+-		HMI_TimeRemainingInTest := 0;
+-		TestPassed := TRUE;
+-		HMI_CycleFinished := TRUE;
+-		state := 197;
+-	END_IF
+-	
+-
+-//**************************************************************
+-// 197 - Manual Test Complete
+-//**************************************************************
+-197:
+-	HMI_StateName := 'STEP 197 - Manual Test Complete';
+-	HMI_InCycle := FALSE;
+-	IF TestPassed THEN
+-		HMI_Message := 'Manual Test Complete';
+-	ELSE
+-		HMI_Message := 'Manual Test Stopped';
+-	END_IF
+-
+-	IF HMI_ReStartTest OR HMI_Continue THEN
+-		HMI_ReStartTest := FALSE;
+-		HMI_CycleFinished := FALSE;		
+-		TestPassed := FALSE;
+-		TestFailed := FALSE;
+-		state := 190;
+-	ELSIF HMI_DepressurizeSystem THEN
+-		state := 800;
+-	ELSIF HMI_FinishTest THEN
+-		HMI_CycleFinished := FALSE;
+-		HMI_HeaderEndPressure := LREAL_TO_REAL(HeaderCurrentPSI);
+-		HMI_PortAEndPressure := LREAL_TO_REAL(PortACurrentPSI);
+-		HMI_PortBEndPressure := LREAL_TO_REAL(PortBCurrentPSI);
+-		HMI_HeaderEndPressureLow := LREAL_TO_REAL(HeaderCurrentPSI);
+-		HMI_PortAEndPressureLow := LREAL_TO_REAL(PortACurrentPSI);
+-		HMI_PortBEndPressureLow := LREAL_TO_REAL(PortBCurrentPSI);
+-		HMI_FinishTest := FALSE;
+-		state := 850;
+-	ELSIF  HMI_StopTest THEN
+-		HMI_StopTest := FALSE;
+-		HMI_Message := 'Manual Test Stopped';
+-		state := 850;
+-	END_IF
+-
+-
+-	
+-//******************
+-// Pressurize
+-//******************
+-200:
+-	HMI_StateName := 'STEP 200 - Pressurizing System';
+-	HMI_Message := 'Building Pressure';
+-	DesiredPressure := CurrentTargetPressure;
+-	SequenceActive := TRUE;
+-	IF ShearTestActive AND fbShearTest.Done THEN
+-		HMI_ShearPressure := LREAL_TO_REAL(fbShearTest.ShearPressure);
+-		HMI_ShearTime := fbShearTest.ShearTime;
+-		TestPeakPress := fbShearTest.ShearTime;
+-	TestPassed := TRUE;
+-	state := 800;
+-
+-	ELSIF HMI_StopTest THEN
+-		state := 700;
+-	ELSIF fbPressurize.Error OR NOT HMI_EStopOK THEN
+-		TestFailed := TRUE;
+-		FailureReason := 'Failed To Build Pressure';
+-		state := 900;
+-	ELSIF fbPressurize.Done THEN
+-		state := 300;
+-	END_IF;
+-	
+-	
+-
+-//******************
+-// Stabilize Pressure
+-//******************
+-300:
+-	HMI_StateName := 'STEP 300 - Stabilizing Pressure';
+-	HMI_Message := 'Waiting for Pressure to Stabilize';
+-	
+-	IF ShearTestActive AND fbShearTest.Done THEN
+-		HMI_ShearPressure := LREAL_TO_REAL(fbShearTest.ShearPressure);
+-		HMI_ShearTime := fbShearTest.ShearTime;
+-		TestPassed := TRUE;
+-//		state := 800;
+-	ELSIF HMI_StopTest THEN
+-		state := 700;
+-	ELSIF fbStabilize.OverPressure THEN
+-		TestFailed := TRUE;
+-		FailureReason := fbStabilize.FailureReason;
+-		state := 900;
+-
+-	//******************
+-	// Pressure fell below minimum
+-	//******************
+-//	ELSIF fbStabilize.NeedRepressurize THEN
+-//		IF NOT RepressurizeUsed THEN
+-//			RepressurizeUsed := TRUE;
+-//			state := 200;
+-//		ELSE
+-//			TestFailed := TRUE;
+-//			FailureReason := 'Pressure Fell Below Minimum After Repressurization';
+-//			state := 900;
+-//		END_IF
+-	ELSIF fbStabilize.Error THEN
+-		TestFailed := TRUE;
+-		FailureReason := fbStabilize.FailureReason;
+-		state := 900;
+-
+-	ELSIF fbStabilize.Done THEN
+-		IF ShearTestActive THEN
+-			state := 650;
+-		ELSE
+-			state := 400;
+-		END_IF
+-	END_IF
+-	
+-	
+-//******************
+-// Timed Pressure Hold
+-//******************
+-400:
+-	HMI_StateName := 'STEP 400 - Pressure Hold';
+-	HMI_Message := 'Test In Progress';
+-	HMI_InCycle := TRUE;
+-	SequenceActive := TRUE;
+-	
+-	
+-	HMI_ExecutedTestTime :=	TIME_TO_DINT(fbPressureHold.ElapsedTime);
+-	IF CurrentTestDuration >= fbPressureHold.ElapsedTime THEN
+-		HMI_TimeRemainingInTest := TIME_TO_DINT(CurrentTestDuration - fbPressureHold.ElapsedTime);
+-	ELSE
+-		HMI_TimeRemainingInTest := 0;
+-	END_IF
+-	
+-	IF CurrentTargetPressure <= PumpSwapSetpoint THEN
+-		HMI_HeaderStartPressure := LREAL_TO_REAL(fbPressureHold.HeaderStartPressure);
+-		HMI_HeaderEndPressure := LREAL_TO_REAL(fbPressureHold.HeaderEndPressure);
+-		HMI_PortAStartPressure := LREAL_TO_REAL(fbPressureHold.PortAStartPressure);
+-		HMI_PortBStartPressure := LREAL_TO_REAL(fbPressureHold.PortBStartPressure);
+-		HMI_HeaderCurrentPressureDrop := LREAL_TO_REAL(fbPressureHold.CurrentHeaderPressureDrop);
+-		HMI_PortACurrentPressureDrop := LREAL_TO_REAL(fbPressureHold.CurrentPressureDropA);
+-		HMI_PortBCurrentPressureDrop := LREAL_TO_REAL(fbPressureHold.CurrentPressureDropB);
+-		HMI_HeaderStartPressureLow := LREAL_TO_REAL(fbPressureHold.HeaderStartPressure);
+-		HMI_PortAStartPressureLow := LREAL_TO_REAL(fbPressureHold.PortAStartPressure);
+-		HMI_PortBStartPressureLow := LREAL_TO_REAL(fbPressureHold.PortBStartPressure);
+-		HMI_HeaderCurrentPressureDropLow := LREAL_TO_REAL(fbPressureHold.CurrentHeaderPressureDrop);
+-		HMI_PortACurrentPressureDropLow := LREAL_TO_REAL(fbPressureHold.CurrentPressureDropA);
+-		HMI_PortBCurrentPressureDropLow := LREAL_TO_REAL(fbPressureHold.CurrentPressureDropB);
+-		HMI_LowTestElapsedTime := TIME_TO_DINT(fbPressureHold.ElapsedTime);
+-	ELSE
+-		HMI_HeaderStartPressure := LREAL_TO_REAL(fbPressureHold.HeaderStartPressure);
+-		HMI_PortAStartPressure := LREAL_TO_REAL(fbPressureHold.PortAStartPressure);
+-		HMI_PortBStartPressure := LREAL_TO_REAL(fbPressureHold.PortBStartPressure);
+-		HMI_HeaderCurrentPressureDrop := LREAL_TO_REAL(fbPressureHold.CurrentHeaderPressureDrop);
+-		HMI_PortACurrentPressureDrop := LREAL_TO_REAL(fbPressureHold.CurrentPressureDropA);
+-		HMI_PortBCurrentPressureDrop := LREAL_TO_REAL(fbPressureHold.CurrentPressureDropB);
+-		HMI_HeaderStartPressureHigh := LREAL_TO_REAL(fbPressureHold.HeaderStartPressure);
+-		HMI_PortAStartPressureHigh := LREAL_TO_REAL(fbPressureHold.PortAStartPressure);
+-		HMI_PortBStartPressureHigh := LREAL_TO_REAL(fbPressureHold.PortBStartPressure);
+-		HMI_HeaderCurrentPressureDropHigh := LREAL_TO_REAL(fbPressureHold.CurrentHeaderPressureDrop);
+-		HMI_PortACurrentPressureDropHigh := LREAL_TO_REAL(fbPressureHold.CurrentPressureDropA);
+-		HMI_PortBCurrentPressureDropHigh := LREAL_TO_REAL(fbPressureHold.CurrentPressureDropB);
+-		HMI_HighTestElapsedTime := TIME_TO_DINT(fbPressureHold.ElapsedTime);
+-	END_IF
+-	
+-	
+-	IF HMI_StopTest THEN
+-		state := 700;
+-	ELSIF fbPressureHold.Error THEN
+-		TestFailed := TRUE;
+-		FailureReason := fbPressureHold.FailureReason;
+-		state := 900;
+-	ELSIF fbPressureHold.Done THEN
+-		TestPassed := TRUE;
+-		state := 500;
+-	END_IF
+-	
+-	
+-//******************
+-// Test Stage Complete
+-//******************
+-500:
+-	HMI_StateName := 'STEP 500 - Test Stage Complete';
+-
+-	//******************
+-	// Combined Low -> High Test
+-	//******************
+-	IF LowHighTestActive AND NOT LowTestComplete THEN
+-		LowTestComplete := TRUE;
+-		TestPassed := FALSE;
+-		CurrentTargetPressure := LoadedRecipe.HighTestPressure;
+-		CurrentTestDuration := DINT_TO_TIME(LoadedRecipe.HighTestDuration * 60000);
+-		HMI_HeaderEndPressureLow := LREAL_TO_REAL(fbPressureHold.HeaderPressure);
+-		HMI_PortAEndPressureLow := LREAL_TO_REAL(fbPressureHold.PortAPressure);
+-		HMI_PortBEndPressureLow := LREAL_TO_REAL(fbPressureHold.PortBPressure);
+-		RepressurizeUsed := FALSE;
+-		state := 110;
+-	ELSE
+-		TestPassed := TRUE;
+-		IF CurrentTargetPressure <= PumpSwapSetpoint  THEN
+-			HMI_HeaderEndPressureLow := LREAL_TO_REAL(fbPressureHold.HeaderPressure);
+-			HMI_PortAEndPressureLow := LREAL_TO_REAL(fbPressureHold.PortAPressure);
+-			HMI_PortBEndPressureLow := LREAL_TO_REAL(fbPressureHold.PortBPressure);
+-		ELSE
+-			HMI_HeaderEndPressureHigh := LREAL_TO_REAL(fbPressureHold.HeaderPressure);
+-			HMI_PortAEndPressureHigh := LREAL_TO_REAL(fbPressureHold.PortAPressure);
+-			HMI_PortBEndPressureHigh := LREAL_TO_REAL(fbPressureHold.PortBPressure);
+-		END_IF
+-		state := 800; 
+-	END_IF
+-	
+-	
+-//******************
+-// XHBV Cycle Test
+-//******************
+-600:
+-	HMI_StateName := 'STEP 600 - Cycle Pressure Test';
+-	HMI_CycleCount := UINT_TO_INT(fbCyclePressureTest.CycleCount);
+-	SequenceActive := TRUE;
+-	HMI_TimeRemainingInTest := TIME_TO_DINT(fbCyclePressureTest.TimeRemaining);
+-	
+-	IF HMI_StopTest THEN
+-		state := 700;
+-	ELSIF fbCyclePressureTest.Failed THEN
+-		TestFailed := TRUE;
+-		FailureReason := fbCyclePressureTest.FailureReason;
+-		state := 900;
+-	ELSIF fbCyclePressureTest.Done THEN
+-		TestPassed := TRUE;
+-		state := 800;
+-	END_IF
+-
+-
+-//******************
+-// Shear Test
+-//******************
+-650:
+-	HMI_StateName := 'STEP 650 - Shear Test';
+-	HMI_Message := 'Pressurizing - Waiting for Shear Event';
+-	HMI_InCycle := TRUE;
+-
+-
+-	//******************
+-	// Live values
+-	//******************
+-	HMI_ShearPressure := LREAL_TO_REAL(fbShearTest.PeakPressure);
+-	HMI_ExecutedTestTime := TIME_TO_DINT(fbShearTest.ElapsedTime);
+-	
+-
+-	//******************
+-	// Operator abort
+-	//******************
+-	IF HMI_StopTest THEN
+-		TestPassed := FALSE;
+-		state := 700;
+-
+-
+-	//******************
+-	// Shear test fault / no shear
+-	//******************
+-	ELSIF fbShearTest.Error THEN
+-		TestFailed := TRUE;
+-		FailureReason := fbShearTest.FailureReason;
+-		state := 900;
+-
+-
+-	//******************
+-	// Shear detected
+-	//******************
+-	ELSIF fbShearTest.Done THEN
+-		HMI_ShearPressure := LREAL_TO_REAL(fbShearTest.ShearPressure);
+-		HMI_ShearTime := fbShearTest.ShearTime;
+-		TestPassed := TRUE;
+-		HMI_Message := 'Shear Event Detected';
+-		state := 200;
+-	END_IF
+-
+-	
+-//******************
+-// Operator Abort
+-//******************
+-700:
+-	HMI_StateName := 'STEP 700 - Test Stopped';
+-	HMI_Message := 'Test Cycle Stopped by Operator';
+-	TestFailed := TRUE;
+-	FailureReason := 'Test Cycle Stopped by Operator';
+-	TestPassed := FALSE;
+-	state := 800;
+-	
+-	
+-//******************
+-// Depressurize
+-//******************
+-800:
+-	HMI_StateName := 'STEP 800 - Depressurizing';
+-	IF fbDepressurize.Error THEN
+-		TestFailed := TRUE;
+-		FailureReason := fbDepressurize.FailureReason;
+-		state := 999;
+-	ELSIF fbDepressurize.Done THEN
+-		HMI_Message := 'System is Depressurized';
+-		state := 850;
+-	ELSIF  HMI_StopTest THEN
+-		HMI_StopTest := FALSE;
+-		state := 850;
+-	ELSE
+-		HMI_Message := 'Waiting for System to Depressurize';
+-	END_IF
+-	
+-	
+-//******************
+-// Test Complete
+-//******************
+-850:
+-	HMI_StateName := 'STEP 850 - Test Complete';
+-	HMI_InCycle := FALSE;
+-	SequenceActive := FALSE;
+-	IF TestFailed THEN
+-		HMI_Message := CONCAT('Test Failed - ', FailureReason);
+-	ELSE
+-		HMI_Message := 'Test Complete';
+-		FailureReason := 'Test Criteria Passed';
+-	END_IF
+-	IF HMI_GatheringData THEN
+-		HMI_TestingCompleted := TRUE;
+-		HMI_GatheringData := FALSE;
+-		state := 875;
+-	ELSE
+-		HMI_InCycle := FALSE;
+-		state := 0;
+-	END_IF
+-	
+-//******************
+-// Wait for Save / Finish
+-//******************
+-875:
+-	HMI_StateName := 'STEP 875 - Waiting On Operator';
+-	IF HMI_SaveTest OR HMI_StopTest OR NOT HMI_EStopOK THEN
+-		HMI_TestingCompleted := FALSE;
+-		HMI_SaveTest := FALSE;
+-		UNLOADRECIPE();
+-		HMI_ExecutedTestTime := 0;
+-		state := 0;
+-	END_IF
+-	
+-
+-//******************
+-// Test Failed
+-//******************
+-900:
+-	HMI_StateName := 'STEP 900 - Test Failed';
+-	TestPassed := FALSE;
+-	TestFailed := TRUE;
+-	HMI_Message := CONCAT('Test Failed - ', FailureReason);
+-	state := 800;
+-	
+-	
+-//******************
+-// Safety Fault
+-//******************
+-999:
+-	HMI_InCycle := FALSE;
+-	SequenceActive := FALSE;
+-	Auto_PumpCmd := FALSE;
+-	IF NOT HMI_EStopOK THEN
+-		IF NOT I_EStop1A THEN
+-			HMI_Message := 'Main E-Stop pressed';
+-		ELSIF NOT I_EStop2A THEN
+-			HMI_Message := 'Back E-Stop pressed';
+-		END_IF
+-	ELSIF NOT Safety_I_EStopIsReset THEN
+-		HMI_Message := 'Press Reset to begin';
+-	ELSIF NOT Door1.Closed THEN
+-		HMI_Message := 'Door 1 not closed';
+-	ELSIF NOT Door2.Closed THEN
+-		HMI_Message := 'Door 2 not closed';
+-	ELSIF NOT bAirCabDoor1State THEN
+-		HMI_Message := 'Air cabinet door not closed';
+-	ELSE
+-		HMI_Message := 'Press Reset to begin';
+-	END_IF
+-
+-	IF Safety_I_MachineIsReset THEN
+-		HMI_Message := '';
+-		state := 0;
+-	END_IF
+-	
+-	IF HMI_StopTest THEN
+-		UNLOADRECIPE();
+-	END_IF
+-
+-END_CASE
+-
+-
+-//******************
+-// Automatic Valve Setup
+-//******************
+-
+-CASE state OF
+-	200:
+-		Auto_PumpCmd := fbPressurize.Pump;
+-		Auto_DumpValveACmd := fbPressurize.DumpValveA;
+-		Auto_DumpValveBCmd := fbPressurize.DumpValveB;
+-		Auto_PortABlockValveCmd := fbPressurize.BlockValveA;
+-		Auto_PortBBlockValveCmd := fbPressurize.BlockValveB;
+-
+-	300, 400:
+-		Auto_PumpCmd := FALSE;
+-		Auto_DumpValveACmd := TRUE;
+-		Auto_DumpValveBCmd := TRUE;
+-		Auto_PortABlockValveCmd := TRUE;
+-		Auto_PortBBlockValveCmd := TRUE;
+-		Auto_PumpCmd := FALSE;
+-	
+-
+-	600:
+-		Auto_PumpCmd := fbCyclePressureTest.Pump;
+-		Auto_DumpValveACmd := fbCyclePressureTest.DumpValveA;
+-		Auto_DumpValveBCmd := fbCyclePressureTest.DumpValveB;
+-		Auto_BleedValveACmd := fbCyclePressureTest.BleedValveA;
+-		Auto_BleedValveBCmd := fbCyclePressureTest.BleedValveB;
+-		Auto_PortABlockValveCmd := fbCyclePressureTest.BlockValveA;
+-		Auto_PortBBlockValveCmd := fbCyclePressureTest.BlockValveB;
+-
+-	800:
+-		Auto_PumpCmd := fbDepressurize.Pump;
+-		Auto_DumpValveACmd := fbDepressurize.DumpValveA;
+-		Auto_DumpValveBCmd := fbDepressurize.DumpValveB;
+-		Auto_PortABlockValveCmd := fbDepressurize.BlockValveA;
+-		Auto_PortBBlockValveCmd := fbDepressurize.BlockValveB;
+-	ELSE
+-		Auto_PumpCmd := FALSE;
+-		Auto_DumpValveACmd := FALSE;
+-		Auto_DumpValveBCmd := FALSE;
+-		Auto_BleedValveACmd := FALSE;
+-		Auto_BleedValveBCmd := FALSE;
+-		Auto_PortABlockValveCmd := FALSE;
+-		Auto_PortBBlockValveCmd := FALSE;
+-END_CASE;
+-
+-
+-//******************
+-// Final Output Selection
+-//******************
+-VALVES();
+-
+-//Bleed Valves always functional from HMI ONLY
+-IF state = 600 THEN
+-    O_BleedValveA := Auto_BleedValveACmd;
+-    O_BleedValveB := Auto_BleedValveBCmd;
+-ELSE
+-    O_BleedValveA := VALVES.HMI_BleedValveACmd;
+-    O_BleedValveB := VALVES.HMI_BleedValveBCmd;
+-END_IF;
+-
+-IF SequenceActive THEN
+-	O_DumpValveA := Auto_DumpValveACmd;
+-	O_DumpValveB := Auto_DumpValveBCmd;
+-	O_PortABlockValve := Auto_PortABlockValveCmd;
+-	O_PortBBlockValve := Auto_PortBBlockValveCmd;
+-ELSE
+-	O_DumpValveA := VALVES.HMI_DumpValveACmd;
+-	O_DumpValveB := VALVES.HMI_DumpValveBCmd;
+-	O_PortABlockValve := VALVES.HMI_PortABlockValveCmd;
+-	O_PortBBlockValve := VALVES.HMI_PortBBlockValveCmd;
+-END_IF;
+-
+-CASE state OF
+-	0, 190, 195, 197:
+-		SequenceActive := FALSE;
+-END_CASE
+-
+-IF SequenceActive THEN
+-	CASE state OF
+-		200:
+-			DesiredPressure := CurrentTargetPressure;
+-			HMI_TestPressure := LREAL_TO_DINT(DesiredPressure);
+-		ELSE
+-			DesiredPressure := 0.0;
+-		
+-		600:
+-			//Eventually cycle-test pressure command here
+-			DesiredPressure := LREAL_TO_DINT(fbCyclePressureTest.DesiredPressure);	
+-			HMI_TestPressure := LREAL_TO_DINT(fbCyclePressureTest.DesiredPressure);
+-	END_CASE
+-ELSE
+-	IF HMI_TogglePump THEN
+-		PumpManualCmd := NOT PumpManualCmd;
+-	END_IF
+-	IF PumpManualCmd AND Safety_HPP1AirStatus THEN
+-		DesiredPressure := HMI_TestPressure;
+-		CurrentTargetPressure := HMI_TestPressure;
+-	ELSE
+-		DesiredPressure := 0.0;
+-	END_IF
+-END_IF]]></ST>
+-    </Implementation>
+-    <LineIds Name="SEQUENCE">
+-      <LineId Id="2357" Count="2" />
+-      <LineId Id="2361" Count="4" />
+-      <LineId Id="2497" Count="0" />
+-      <LineId Id="2369" Count="1" />
+-      <LineId Id="4877" Count="1" />
+-      <LineId Id="2372" Count="1" />
+-      <LineId Id="3715" Count="0" />
+-      <LineId Id="2375" Count="1" />
+-      <LineId Id="2378" Count="1" />
+-      <LineId Id="2381" Count="4" />
+-      <LineId Id="2387" Count="0" />
+-      <LineId Id="4670" Count="0" />
+-      <LineId Id="4672" Count="1" />
+-      <LineId Id="4675" Count="1" />
+-      <LineId Id="4678" Count="0" />
+-      <LineId Id="4680" Count="0" />
+-      <LineId Id="4682" Count="0" />
+-      <LineId Id="4668" Count="0" />
+-      <LineId Id="2404" Count="0" />
+-      <LineId Id="2406" Count="4" />
+-      <LineId Id="4685" Count="2" />
+-      <LineId Id="4690" Count="0" />
+-      <LineId Id="4693" Count="0" />
+-      <LineId Id="4750" Count="1" />
+-      <LineId Id="4694" Count="1" />
+-      <LineId Id="4875" Count="0" />
+-      <LineId Id="4699" Count="0" />
+-      <LineId Id="4702" Count="0" />
+-      <LineId Id="4684" Count="0" />
+-      <LineId Id="4819" Count="0" />
+-      <LineId Id="2441" Count="4" />
+-      <LineId Id="2447" Count="0" />
+-      <LineId Id="2449" Count="1" />
+-      <LineId Id="4983" Count="1" />
+-      <LineId Id="2452" Count="1" />
+-      <LineId Id="2455" Count="0" />
+-      <LineId Id="2457" Count="1" />
+-      <LineId Id="5165" Count="0" />
+-      <LineId Id="5182" Count="1" />
+-      <LineId Id="5166" Count="3" />
+-      <LineId Id="5172" Count="0" />
+-      <LineId Id="5174" Count="0" />
+-      <LineId Id="5177" Count="4" />
+-      <LineId Id="2459" Count="1" />
+-      <LineId Id="5186" Count="0" />
+-      <LineId Id="2461" Count="3" />
+-      <LineId Id="2466" Count="0" />
+-      <LineId Id="4804" Count="0" />
+-      <LineId Id="2468" Count="1" />
+-      <LineId Id="4873" Count="1" />
+-      <LineId Id="2471" Count="0" />
+-      <LineId Id="2474" Count="0" />
+-      <LineId Id="2477" Count="0" />
+-      <LineId Id="2480" Count="0" />
+-      <LineId Id="2483" Count="0" />
+-      <LineId Id="2486" Count="0" />
+-      <LineId Id="2489" Count="0" />
+-      <LineId Id="2492" Count="0" />
+-      <LineId Id="2495" Count="0" />
+-      <LineId Id="5085" Count="0" />
+-      <LineId Id="5" Count="0" />
+-      <LineId Id="4004" Count="1" />
+-      <LineId Id="3981" Count="2" />
+-      <LineId Id="4147" Count="0" />
+-      <LineId Id="4149" Count="0" />
+-      <LineId Id="4152" Count="0" />
+-      <LineId Id="4154" Count="0" />
+-      <LineId Id="3986" Count="0" />
+-      <LineId Id="3988" Count="0" />
+-      <LineId Id="3990" Count="0" />
+-      <LineId Id="3993" Count="0" />
+-      <LineId Id="5187" Count="1" />
+-      <LineId Id="3996" Count="0" />
+-      <LineId Id="3999" Count="0" />
+-      <LineId Id="4002" Count="0" />
+-      <LineId Id="4416" Count="4" />
+-      <LineId Id="4400" Count="1" />
+-      <LineId Id="4340" Count="0" />
+-      <LineId Id="4608" Count="0" />
+-      <LineId Id="4610" Count="1" />
+-      <LineId Id="4609" Count="0" />
+-      <LineId Id="4342" Count="0" />
+-      <LineId Id="4344" Count="0" />
+-      <LineId Id="4347" Count="0" />
+-      <LineId Id="4350" Count="0" />
+-      <LineId Id="4353" Count="0" />
+-      <LineId Id="4356" Count="0" />
+-      <LineId Id="4359" Count="0" />
+-      <LineId Id="4362" Count="0" />
+-      <LineId Id="4365" Count="0" />
+-      <LineId Id="4368" Count="0" />
+-      <LineId Id="4371" Count="0" />
+-      <LineId Id="4374" Count="0" />
+-      <LineId Id="5088" Count="0" />
+-      <LineId Id="4377" Count="0" />
+-      <LineId Id="4380" Count="0" />
+-      <LineId Id="4383" Count="0" />
+-      <LineId Id="4386" Count="0" />
+-      <LineId Id="4389" Count="0" />
+-      <LineId Id="4392" Count="0" />
+-      <LineId Id="4395" Count="0" />
+-      <LineId Id="4398" Count="0" />
+-      <LineId Id="4339" Count="0" />
+-      <LineId Id="4518" Count="6" />
+-      <LineId Id="4603" Count="3" />
+-      <LineId Id="4525" Count="19" />
+-      <LineId Id="4406" Count="0" />
+-      <LineId Id="2499" Count="0" />
+-      <LineId Id="3921" Count="1" />
+-      <LineId Id="3918" Count="2" />
+-      <LineId Id="3917" Count="0" />
+-      <LineId Id="3924" Count="0" />
+-      <LineId Id="2500" Count="0" />
+-      <LineId Id="3927" Count="0" />
+-      <LineId Id="2501" Count="0" />
+-      <LineId Id="3926" Count="0" />
+-      <LineId Id="2502" Count="0" />
+-      <LineId Id="2631" Count="1" />
+-      <LineId Id="5280" Count="0" />
+-      <LineId Id="2503" Count="9" />
+-      <LineId Id="2514" Count="2" />
+-      <LineId Id="2518" Count="1" />
+-      <LineId Id="2521" Count="0" />
+-      <LineId Id="2523" Count="0" />
+-      <LineId Id="2526" Count="0" />
+-      <LineId Id="2528" Count="0" />
+-      <LineId Id="2530" Count="0" />
+-      <LineId Id="2532" Count="1" />
+-      <LineId Id="2535" Count="0" />
+-      <LineId Id="2537" Count="0" />
+-      <LineId Id="2539" Count="7" />
+-      <LineId Id="2548" Count="0" />
+-      <LineId Id="2550" Count="2" />
+-      <LineId Id="2554" Count="0" />
+-      <LineId Id="4820" Count="2" />
+-      <LineId Id="4824" Count="2" />
+-      <LineId Id="4981" Count="1" />
+-      <LineId Id="3425" Count="0" />
+-      <LineId Id="3429" Count="1" />
+-      <LineId Id="2556" Count="0" />
+-      <LineId Id="3427" Count="1" />
+-      <LineId Id="3426" Count="0" />
+-      <LineId Id="3431" Count="0" />
+-      <LineId Id="2557" Count="2" />
+-      <LineId Id="4802" Count="0" />
+-      <LineId Id="2563" Count="0" />
+-      <LineId Id="2565" Count="0" />
+-      <LineId Id="2568" Count="0" />
+-      <LineId Id="3859" Count="1" />
+-      <LineId Id="3858" Count="0" />
+-      <LineId Id="3862" Count="1" />
+-      <LineId Id="3861" Count="0" />
+-      <LineId Id="3870" Count="0" />
+-      <LineId Id="3873" Count="0" />
+-      <LineId Id="3871" Count="0" />
+-      <LineId Id="2573" Count="6" />
+-      <LineId Id="2582" Count="0" />
+-      <LineId Id="2584" Count="0" />
+-      <LineId Id="2587" Count="0" />
+-      <LineId Id="3865" Count="4" />
+-      <LineId Id="3864" Count="0" />
+-      <LineId Id="3875" Count="1" />
+-      <LineId Id="3874" Count="0" />
+-      <LineId Id="2592" Count="6" />
+-      <LineId Id="2601" Count="1" />
+-      <LineId Id="4547" Count="0" />
+-      <LineId Id="2604" Count="0" />
+-      <LineId Id="2607" Count="0" />
+-      <LineId Id="4548" Count="3" />
+-      <LineId Id="2612" Count="0" />
+-      <LineId Id="3969" Count="0" />
+-      <LineId Id="2613" Count="0" />
+-      <LineId Id="3971" Count="3" />
+-      <LineId Id="4122" Count="0" />
+-      <LineId Id="4126" Count="0" />
+-      <LineId Id="4129" Count="0" />
+-      <LineId Id="4132" Count="1" />
+-      <LineId Id="3975" Count="0" />
+-      <LineId Id="3970" Count="0" />
+-      <LineId Id="2614" Count="4" />
+-      <LineId Id="4240" Count="1" />
+-      <LineId Id="2621" Count="0" />
+-      <LineId Id="2624" Count="0" />
+-      <LineId Id="2626" Count="1" />
+-      <LineId Id="2629" Count="0" />
+-      <LineId Id="2498" Count="0" />
+-      <LineId Id="2634" Count="0" />
+-      <LineId Id="3432" Count="0" />
+-      <LineId Id="2635" Count="4" />
+-      <LineId Id="2641" Count="0" />
+-      <LineId Id="2644" Count="0" />
+-      <LineId Id="2646" Count="1" />
+-      <LineId Id="2649" Count="0" />
+-      <LineId Id="2651" Count="6" />
+-      <LineId Id="2659" Count="0" />
+-      <LineId Id="2663" Count="0" />
+-      <LineId Id="2667" Count="0" />
+-      <LineId Id="2670" Count="0" />
+-      <LineId Id="2672" Count="6" />
+-      <LineId Id="2680" Count="0" />
+-      <LineId Id="2689" Count="0" />
+-      <LineId Id="2698" Count="0" />
+-      <LineId Id="2701" Count="0" />
+-      <LineId Id="2704" Count="5" />
+-      <LineId Id="4472" Count="0" />
+-      <LineId Id="2719" Count="0" />
+-      <LineId Id="2633" Count="0" />
+-      <LineId Id="2749" Count="0" />
+-      <LineId Id="3433" Count="6" />
+-      <LineId Id="3460" Count="2" />
+-      <LineId Id="3464" Count="2" />
+-      <LineId Id="3468" Count="4" />
+-      <LineId Id="3474" Count="0" />
+-      <LineId Id="3620" Count="0" />
+-      <LineId Id="3476" Count="1" />
+-      <LineId Id="3480" Count="0" />
+-      <LineId Id="3483" Count="0" />
+-      <LineId Id="3485" Count="3" />
+-      <LineId Id="2722" Count="0" />
+-      <LineId Id="3445" Count="0" />
+-      <LineId Id="3444" Count="0" />
+-      <LineId Id="3491" Count="6" />
+-      <LineId Id="3499" Count="0" />
+-      <LineId Id="3501" Count="2" />
+-      <LineId Id="3505" Count="1" />
+-      <LineId Id="3508" Count="1" />
+-      <LineId Id="3511" Count="0" />
+-      <LineId Id="3514" Count="0" />
+-      <LineId Id="3516" Count="0" />
+-      <LineId Id="3518" Count="4" />
+-      <LineId Id="3525" Count="0" />
+-      <LineId Id="3527" Count="2" />
+-      <LineId Id="3531" Count="1" />
+-      <LineId Id="3534" Count="1" />
+-      <LineId Id="3537" Count="1" />
+-      <LineId Id="3540" Count="0" />
+-      <LineId Id="3542" Count="2" />
+-      <LineId Id="3547" Count="0" />
+-      <LineId Id="3550" Count="0" />
+-      <LineId Id="3553" Count="0" />
+-      <LineId Id="3610" Count="0" />
+-      <LineId Id="3555" Count="0" />
+-      <LineId Id="3489" Count="0" />
+-      <LineId Id="3557" Count="6" />
+-      <LineId Id="3565" Count="0" />
+-      <LineId Id="3567" Count="0" />
+-      <LineId Id="3569" Count="0" />
+-      <LineId Id="3571" Count="0" />
+-      <LineId Id="3573" Count="0" />
+-      <LineId Id="3575" Count="0" />
+-      <LineId Id="3577" Count="1" />
+-      <LineId Id="3580" Count="1" />
+-      <LineId Id="3618" Count="0" />
+-      <LineId Id="3616" Count="0" />
+-      <LineId Id="3583" Count="0" />
+-      <LineId Id="3586" Count="0" />
+-      <LineId Id="3588" Count="0" />
+-      <LineId Id="3591" Count="0" />
+-      <LineId Id="3612" Count="2" />
+-      <LineId Id="3611" Count="0" />
+-      <LineId Id="3806" Count="1" />
+-      <LineId Id="3805" Count="0" />
+-      <LineId Id="3593" Count="1" />
+-      <LineId Id="4806" Count="0" />
+-      <LineId Id="4811" Count="0" />
+-      <LineId Id="4813" Count="0" />
+-      <LineId Id="4805" Count="0" />
+-      <LineId Id="3490" Count="0" />
+-      <LineId Id="3597" Count="1" />
+-      <LineId Id="3596" Count="0" />
+-      <LineId Id="2723" Count="4" />
+-      <LineId Id="3317" Count="0" />
+-      <LineId Id="3321" Count="0" />
+-      <LineId Id="3318" Count="0" />
+-      <LineId Id="4160" Count="0" />
+-      <LineId Id="4163" Count="0" />
+-      <LineId Id="4168" Count="0" />
+-      <LineId Id="4196" Count="0" />
+-      <LineId Id="4173" Count="0" />
+-      <LineId Id="2731" Count="0" />
+-      <LineId Id="4159" Count="0" />
+-      <LineId Id="4156" Count="0" />
+-      <LineId Id="2733" Count="0" />
+-      <LineId Id="2736" Count="0" />
+-      <LineId Id="2738" Count="1" />
+-      <LineId Id="2742" Count="0" />
+-      <LineId Id="2745" Count="0" />
+-      <LineId Id="4468" Count="0" />
+-      <LineId Id="4466" Count="0" />
+-      <LineId Id="2747" Count="0" />
+-      <LineId Id="2750" Count="0" />
+-      <LineId Id="2752" Count="6" />
+-      <LineId Id="3356" Count="0" />
+-      <LineId Id="4176" Count="0" />
+-      <LineId Id="4179" Count="0" />
+-      <LineId Id="4184" Count="0" />
+-      <LineId Id="4195" Count="0" />
+-      <LineId Id="4191" Count="0" />
+-      <LineId Id="4175" Count="0" />
+-      <LineId Id="2763" Count="0" />
+-      <LineId Id="2766" Count="0" />
+-      <LineId Id="2768" Count="0" />
+-      <LineId Id="2770" Count="0" />
+-      <LineId Id="2773" Count="1" />
+-      <LineId Id="2776" Count="3" />
+-      <LineId Id="2781" Count="0" />
+-      <LineId Id="2783" Count="0" />
+-      <LineId Id="2786" Count="0" />
+-      <LineId Id="2788" Count="0" />
+-      <LineId Id="2790" Count="0" />
+-      <LineId Id="2792" Count="0" />
+-      <LineId Id="2795" Count="0" />
+-      <LineId Id="2797" Count="0" />
+-      <LineId Id="2800" Count="0" />
+-      <LineId Id="2802" Count="0" />
+-      <LineId Id="2804" Count="0" />
+-      <LineId Id="2807" Count="0" />
+-      <LineId Id="2809" Count="0" />
+-      <LineId Id="4135" Count="0" />
+-      <LineId Id="4137" Count="0" />
+-      <LineId Id="4139" Count="0" />
+-      <LineId Id="4141" Count="0" />
+-      <LineId Id="4143" Count="0" />
+-      <LineId Id="4145" Count="0" />
+-      <LineId Id="2751" Count="0" />
+-      <LineId Id="2814" Count="1" />
+-      <LineId Id="2817" Count="5" />
+-      <LineId Id="2824" Count="0" />
+-      <LineId Id="3235" Count="0" />
+-      <LineId Id="3369" Count="0" />
+-      <LineId Id="3374" Count="0" />
+-      <LineId Id="3242" Count="0" />
+-      <LineId Id="3246" Count="0" />
+-      <LineId Id="3248" Count="0" />
+-      <LineId Id="3252" Count="0" />
+-      <LineId Id="3254" Count="0" />
+-      <LineId Id="3240" Count="1" />
+-      <LineId Id="3659" Count="0" />
+-      <LineId Id="3423" Count="0" />
+-      <LineId Id="4703" Count="0" />
+-      <LineId Id="2827" Count="0" />
+-      <LineId Id="4552" Count="0" />
+-      <LineId Id="3422" Count="0" />
+-      <LineId Id="2838" Count="0" />
+-      <LineId Id="2843" Count="0" />
+-      <LineId Id="3794" Count="4" />
+-      <LineId Id="3793" Count="0" />
+-      <LineId Id="4880" Count="0" />
+-      <LineId Id="3660" Count="0" />
+-      <LineId Id="3800" Count="4" />
+-      <LineId Id="3799" Count="0" />
+-      <LineId Id="3666" Count="4" />
+-      <LineId Id="3661" Count="0" />
+-      <LineId Id="4881" Count="0" />
+-      <LineId Id="3663" Count="2" />
+-      <LineId Id="2849" Count="0" />
+-      <LineId Id="2851" Count="0" />
+-      <LineId Id="2854" Count="0" />
+-      <LineId Id="2856" Count="0" />
+-      <LineId Id="2858" Count="0" />
+-      <LineId Id="2861" Count="0" />
+-      <LineId Id="2864" Count="0" />
+-      <LineId Id="2866" Count="0" />
+-      <LineId Id="2868" Count="0" />
+-      <LineId Id="2816" Count="0" />
+-      <LineId Id="2870" Count="1" />
+-      <LineId Id="2873" Count="4" />
+-      <LineId Id="2879" Count="4" />
+-      <LineId Id="2886" Count="0" />
+-      <LineId Id="2888" Count="0" />
+-      <LineId Id="2891" Count="0" />
+-      <LineId Id="2894" Count="0" />
+-      <LineId Id="4555" Count="1" />
+-      <LineId Id="4554" Count="0" />
+-      <LineId Id="4879" Count="0" />
+-      <LineId Id="2905" Count="0" />
+-      <LineId Id="2908" Count="0" />
+-      <LineId Id="2910" Count="0" />
+-      <LineId Id="3808" Count="0" />
+-      <LineId Id="3810" Count="1" />
+-      <LineId Id="3809" Count="0" />
+-      <LineId Id="3812" Count="0" />
+-      <LineId Id="3817" Count="1" />
+-      <LineId Id="3813" Count="0" />
+-      <LineId Id="3819" Count="0" />
+-      <LineId Id="2912" Count="0" />
+-      <LineId Id="2872" Count="0" />
+-      <LineId Id="2914" Count="1" />
+-      <LineId Id="2917" Count="4" />
+-      <LineId Id="2923" Count="0" />
+-      <LineId Id="4285" Count="1" />
+-      <LineId Id="4619" Count="0" />
+-      <LineId Id="2927" Count="0" />
+-      <LineId Id="2929" Count="0" />
+-      <LineId Id="2932" Count="0" />
+-      <LineId Id="2934" Count="0" />
+-      <LineId Id="2936" Count="0" />
+-      <LineId Id="2939" Count="0" />
+-      <LineId Id="2942" Count="0" />
+-      <LineId Id="2944" Count="0" />
+-      <LineId Id="2946" Count="0" />
+-      <LineId Id="2916" Count="0" />
+-      <LineId Id="4007" Count="7" />
+-      <LineId Id="4016" Count="6" />
+-      <LineId Id="4027" Count="0" />
+-      <LineId Id="4031" Count="5" />
+-      <LineId Id="4038" Count="0" />
+-      <LineId Id="4040" Count="6" />
+-      <LineId Id="4048" Count="0" />
+-      <LineId Id="4050" Count="0" />
+-      <LineId Id="4053" Count="6" />
+-      <LineId Id="4061" Count="0" />
+-      <LineId Id="4066" Count="0" />
+-      <LineId Id="4194" Count="0" />
+-      <LineId Id="4073" Count="0" />
+-      <LineId Id="4076" Count="0" />
+-      <LineId Id="2948" Count="0" />
+-      <LineId Id="4079" Count="0" />
+-      <LineId Id="4078" Count="0" />
+-      <LineId Id="2950" Count="4" />
+-      <LineId Id="2956" Count="0" />
+-      <LineId Id="3713" Count="1" />
+-      <LineId Id="2959" Count="1" />
+-      <LineId Id="2962" Count="1" />
+-      <LineId Id="2965" Count="4" />
+-      <LineId Id="2972" Count="0" />
+-      <LineId Id="2974" Count="0" />
+-      <LineId Id="2976" Count="0" />
+-      <LineId Id="2979" Count="0" />
+-      <LineId Id="2982" Count="0" />
+-      <LineId Id="2984" Count="0" />
+-      <LineId Id="2987" Count="0" />
+-      <LineId Id="4815" Count="2" />
+-      <LineId Id="2990" Count="0" />
+-      <LineId Id="2992" Count="0" />
+-      <LineId Id="2964" Count="0" />
+-      <LineId Id="2995" Count="1" />
+-      <LineId Id="2998" Count="4" />
+-      <LineId Id="3004" Count="0" />
+-      <LineId Id="3236" Count="0" />
+-      <LineId Id="3007" Count="0" />
+-      <LineId Id="3009" Count="0" />
+-      <LineId Id="3015" Count="0" />
+-      <LineId Id="3017" Count="0" />
+-      <LineId Id="3925" Count="0" />
+-      <LineId Id="3020" Count="0" />
+-      <LineId Id="3414" Count="1" />
+-      <LineId Id="3023" Count="0" />
+-      <LineId Id="3413" Count="0" />
+-      <LineId Id="3417" Count="1" />
+-      <LineId Id="3416" Count="0" />
+-      <LineId Id="3025" Count="1" />
+-      <LineId Id="3028" Count="3" />
+-      <LineId Id="3877" Count="0" />
+-      <LineId Id="3033" Count="0" />
+-      <LineId Id="3035" Count="1" />
+-      <LineId Id="3038" Count="0" />
+-      <LineId Id="3928" Count="0" />
+-      <LineId Id="3040" Count="0" />
+-      <LineId Id="3027" Count="0" />
+-      <LineId Id="3042" Count="0" />
+-      <LineId Id="3044" Count="5" />
+-      <LineId Id="3051" Count="1" />
+-      <LineId Id="3054" Count="0" />
+-      <LineId Id="3043" Count="0" />
+-      <LineId Id="3060" Count="1" />
+-      <LineId Id="3063" Count="3" />
+-      <LineId Id="3068" Count="0" />
+-      <LineId Id="3237" Count="0" />
+-      <LineId Id="3070" Count="0" />
+-      <LineId Id="3073" Count="0" />
+-      <LineId Id="3075" Count="0" />
+-      <LineId Id="3077" Count="0" />
+-      <LineId Id="3080" Count="0" />
+-      <LineId Id="3082" Count="0" />
+-      <LineId Id="3085" Count="0" />
+-      <LineId Id="3088" Count="0" />
+-      <LineId Id="3090" Count="0" />
+-      <LineId Id="3094" Count="0" />
+-      <LineId Id="3096" Count="0" />
+-      <LineId Id="3100" Count="0" />
+-      <LineId Id="3102" Count="0" />
+-      <LineId Id="3106" Count="0" />
+-      <LineId Id="3108" Count="0" />
+-      <LineId Id="3112" Count="0" />
+-      <LineId Id="3114" Count="0" />
+-      <LineId Id="3117" Count="1" />
+-      <LineId Id="3120" Count="0" />
+-      <LineId Id="3122" Count="0" />
+-      <LineId Id="3124" Count="0" />
+-      <LineId Id="3126" Count="0" />
+-      <LineId Id="4934" Count="0" />
+-      <LineId Id="4928" Count="1" />
+-      <LineId Id="4932" Count="0" />
+-      <LineId Id="3128" Count="0" />
+-      <LineId Id="3062" Count="0" />
+-      <LineId Id="3130" Count="6" />
+-      <LineId Id="3138" Count="1" />
+-      <LineId Id="3141" Count="1" />
+-      <LineId Id="3144" Count="0" />
+-      <LineId Id="3148" Count="0" />
+-      <LineId Id="3150" Count="2" />
+-      <LineId Id="3154" Count="1" />
+-      <LineId Id="3157" Count="0" />
+-      <LineId Id="3161" Count="0" />
+-      <LineId Id="3376" Count="0" />
+-      <LineId Id="3375" Count="0" />
+-      <LineId Id="3162" Count="0" />
+-      <LineId Id="3164" Count="1" />
+-      <LineId Id="3167" Count="1" />
+-      <LineId Id="3170" Count="1" />
+-      <LineId Id="3173" Count="1" />
+-      <LineId Id="3176" Count="2" />
+-      <LineId Id="3180" Count="1" />
+-      <LineId Id="3186" Count="1" />
+-      <LineId Id="3190" Count="1" />
+-      <LineId Id="3193" Count="1" />
+-      <LineId Id="3196" Count="1" />
+-      <LineId Id="3199" Count="1" />
+-      <LineId Id="3202" Count="5" />
+-      <LineId Id="3315" Count="0" />
+-      <LineId Id="3674" Count="0" />
+-      <LineId Id="3672" Count="0" />
+-      <LineId Id="4287" Count="1" />
+-      <LineId Id="4290" Count="0" />
+-      <LineId Id="4293" Count="0" />
+-      <LineId Id="4292" Count="0" />
+-      <LineId Id="4289" Count="0" />
+-      <LineId Id="3208" Count="1" />
+-      <LineId Id="3211" Count="1" />
+-      <LineId Id="3217" Count="1" />
+-      <LineId Id="3220" Count="0" />
+-      <LineId Id="3224" Count="1" />
+-      <LineId Id="3230" Count="1" />
+-      <LineId Id="3233" Count="0" />
+-      <LineId Id="3607" Count="0" />
+-      <LineId Id="3599" Count="0" />
+-      <LineId Id="3601" Count="1" />
+-      <LineId Id="3258" Count="0" />
+-      <LineId Id="3609" Count="0" />
+-      <LineId Id="3608" Count="0" />
+-      <LineId Id="3261" Count="0" />
+-      <LineId Id="3263" Count="1" />
+-      <LineId Id="3319" Count="0" />
+-      <LineId Id="3267" Count="1" />
+-      <LineId Id="3448" Count="0" />
+-      <LineId Id="3451" Count="0" />
+-      <LineId Id="3449" Count="1" />
+-      <LineId Id="3447" Count="0" />
+-      <LineId Id="3270" Count="0" />
+-      <LineId Id="3453" Count="0" />
+-      <LineId Id="3273" Count="0" />
+-      <LineId Id="3455" Count="1" />
+-      <LineId Id="3274" Count="0" />
+-      <LineId Id="3276" Count="0" />
+-      <LineId Id="4607" Count="0" />
+-      <LineId Id="3277" Count="2" />
+-      <LineId Id="3257" Count="0" />
+-      <LineId Id="932" Count="79" />
+-      <LineId Id="2" Count="0" />
+-      <LineId Id="1013" Count="17" />
+-      <LineId Id="5274" Count="5" />
+-      <LineId Id="1036" Count="10" />
+-      <LineId Id="5089" Count="0" />
+-      <LineId Id="1065" Count="29" />
+-      <LineId Id="5189" Count="0" />
+-    </LineIds>
+-  </POU>
++    EnableManualValveOpeningSimulation : BOOL := FALSE; // Commissioning only; keep FALSE for acceptance tests.
++	TestPassed				: BOOL;
++	TestFailed				: BOOL;
++	TestPeakPress			: TIME;
++	PumpManualCmd			: BOOL;
++	HMIStartTestPH			: BOOL;
++	FailureReason			: STRING(255);
++	
++	ManualTestTimer 		: TON;
++	TestElapsedTimer 		: TON;
++	TestElapsed				: TIME;
++
++	Auto_PumpCmd			: BOOL;
++	Auto_DumpValveACmd		: BOOL;
++	Auto_DumpValveBCmd		: BOOL;
++	Auto_BleedValveACmd		: BOOL;
++	Auto_BleedValveBCmd		: BOOL;
++	Auto_PortABlockValveCmd	: BOOL;
++	Auto_PortBBlockValveCmd	: BOOL;
++	LowPressureTarget: LREAL;
++
++	// Learned near-target air correction, XHBV only (not retained).
++	CycleApproachLearnEnable : BOOL := TRUE;
++	CycleApproachMaxAirPSI : LREAL := 0.20;
++	CycleApproachLearnedAirPSI : LREAL;
++	CycleApproachAppliedAirPSI : LREAL;
++	CycleApproachCandidateAirPSI : LREAL;
++	CycleApproachCandidateValid : BOOL;
++	CycleApproachHoldPeakPSI : LREAL;
++	CycleApproachBlend : LREAL;
++	CycleApproachErrorPSI : LREAL;
++	CycleApproachStateBefore : INT;
++	CycleApproachLastITerm : LREAL;
++	CycleApproachLastTrim : LREAL;
++	CycleApproachLastValid : BOOL;
++	CycleApproachActive : BOOL;
++	CycleApproachPreviousActive : BOOL;
++	CycleApproachSavedUpperHigh : LREAL;
++	CycleApproachSavedLowerHigh : LREAL;
++	CycleApproachSavedUpperLow : LREAL;
++	CycleApproachSavedLowerLow : LREAL;
++	CycleApproachSavedHoldTime : TIME;
++	CycleApproachSavedPortA : BOOL;
++	CycleApproachSavedPortB : BOOL;
++    // Startup/rearm for the independent cycle ramp shear instance.
++    CycleRampStartupTime : TIME := T#500MS;
++    CycleRampMinimumArmPSI : LREAL := 500.0;
++    CycleRampArmed : BOOL;
++    CycleRampPhase : BOOL;
++    CycleRampSignalValid : BOOL;
++    CycleRampPeakA : LREAL;
++    CycleRampPeakB : LREAL;
++    tCycleRampStartup : TON;
++END_VAR]]></Declaration>
++    <Implementation>
++      <ST><![CDATA[ //**************************************************************
++// Function Block Calls
++//**************************************************************
++
++//******************
++// Pressurization
++//******************
++fbPressurize(Execute := state = 200,
++			Abort := bAbortSequence OR HMI_StopTest,
++			PressureA := PortACurrentPSI,
++			PressureB := PortBCurrentPSI,
++			PortA_Active := PortA_Active,
++			PortB_Active := PortB_Active,
++			MinPressure := MinPressure,
++			MaxPressure := MaxPressure,
++			FillTarget := FillTargetPressure, //CurrentTargetPressure,
++			PressureDwell := LoadedRecipe.PressStabilizeDwell,
++			IsolationDwell := T#2S,
++			AirOK := Safety_HPP1AirStatus
++);
++
++//******************
++// Stabilization
++//******************
++fbStabilize(Execute := state = 300,
++			Abort := bAbortSequence OR HMI_StopTest,
++			SystemPressure := SystemPressure,
++			TargetMinPressure := MinPressure,
++			TargetMaxPressure := MaxPressure,
++			MaxStableVariance := LoadedRecipe.MaxStableVariance,
++			MinStableVariance := LoadedRecipe.MinStableVariance,
++			StabilizeDwell := LoadedRecipe.PressStabilizeDwell,
++			TestDurationMinutes := HMI_TestDuration,
++			CheckPressureTrend := TRUE,
++			RequireProjectedPass := TRUE
++);
++
++
++//******************
++// Pressure Hold
++//******************
++fbPressureHold(
++	Execute := state = 400,
++	Abort := bAbortSequence OR HMI_StopTest,
++	SystemPressure := SystemPressure,
++	HeaderPressure := HeaderCurrentPSI,
++	TargetMinPressure := MinPressure,
++	TargetMaxPressure := MaxPressure,
++	PortAPressure := PortACurrentPSI,
++	PortBPressure := PortBCurrentPSI,
++	HoldMinPressure := fbStabilize.StableMinPressure,
++	HoldMaxPressure := fbStabilize.StableMaxPressure,
++	HoldTime := CurrentTestDuration
++);
++
++
++//******************
++// Depressurization
++//******************
++fbDepressurize(Execute := state = 800,
++			Abort := FALSE,
++			PressureA := PortACurrentPSI,
++			PressureB := PortBCurrentPSI,
++			PortA_Active := PortA_Active,
++			PortB_Active := PortB_Active,
++			SafePressure := 100.0,
++			ZeroPressure := 25.0,
++			RequireZero := TRUE,
++			Timeout := T#5M
++);
++
++//******************
++// Cycle Test - Ramp Monitor
++//******************
++// Monitor pressure buildup during each XHBV cycle.
++CycleFirstRampActive := (state = 600) AND (fbCyclePressureTest.State = 20)
++    AND (fbCyclePressureTest.CycleCount = 0);
++CycleRampPhase := NOT CycleFirstRampActive AND (state = 600) AND (fbCyclePressureTest.State = 20)
++    AND NOT bAbortSequence AND NOT HMI_StopTest AND Safety_HPP1AirStatus
++    AND HMI_EStopOK AND NOT PumpManualCmd;
++CycleRampSignalValid := (NOT PortA_Active OR ((PT[101].RawMax > PT[101].RawMin)
++    AND NOT MAIN.PortAPressureFB.OverRange AND (MAIN.PortAPressureFB.RawPSI >= -100.0)))
++    AND (NOT PortB_Active OR ((PT[102].RawMax > PT[102].RawMin)
++    AND NOT MAIN.PortBPressureFB.OverRange AND (MAIN.PortBPressureFB.RawPSI >= -100.0)))
++    AND (PortA_Active OR PortB_Active);
++// Separate first-ramp candidate capture from later-cycle opening detection.
++fbFirstRampEvent(
++    Enable := (state = 600) AND NOT bAbortSequence AND NOT HMI_StopTest
++        AND HMI_EStopOK AND Safety_HPP1AirStatus AND NOT PumpManualCmd,
++    Reset := (state = 100) OR ((state = 600) AND (fbCyclePressureTest.State = 0))
++        OR bAbortSequence OR HMI_StopTest,
++    RampActive := CycleFirstRampActive,
++    PressureA := MAIN.PortAPressureFB.RawPSI,
++    PressureB := MAIN.PortBPressureFB.RawPSI,
++    PortAActive := PortA_Active,
++    PortBActive := PortB_Active,
++    PumpOff := NOT fbCyclePressureTest.Pump AND NOT PumpManualCmd,
++    ReleasePathsClosed := (NOT PortA_Active OR (O_DumpValveA AND O_BleedValveA))
++        AND (NOT PortB_Active OR (O_DumpValveB AND O_BleedValveB)),
++    SensorDataValid := CycleRampSignalValid,
++    CycleTimeSeconds := 0.005
++);
++
++tCycleRampStartup(
++    IN := CycleRampPhase AND CycleRampSignalValid AND fbCyclePressureTest.Pump
++        AND NOT fbValveOpeningDetector.CloseBleedRequest
++        AND NOT fbValveOpeningDetector.CandidateRejected AND NOT fbCycleRampShear.Error,
++    PT := CycleRampStartupTime);
++IF NOT CycleRampPhase OR NOT CycleRampSignalValid
++    OR fbValveOpeningDetector.CandidateRejected OR fbCycleRampShear.Error THEN
++    CycleRampArmed := FALSE;
++ELSIF tCycleRampStartup.Q AND (fbValveOpeningDetector.SelectedPressure >= CycleRampMinimumArmPSI) THEN
++    CycleRampArmed := TRUE;
++END_IF;
++
++// Preserve channel pressures at the selected-pressure peak, before the shear call.
++// These are from the same lightly filtered sample as CurrentPressure below.
++IF NOT CycleRampArmed OR (fbCycleRampShear.State = 0)
++    OR ((fbCycleRampShear.State = 10)
++        AND (fbValveOpeningDetector.SelectedPressure > fbCycleRampShear.PeakPressure)) THEN
++    CycleRampPeakA := fbValveOpeningDetector.FastPressureA;
++    CycleRampPeakB := fbValveOpeningDetector.FastPressureB;
++END_IF;
++fbCycleRampShear(
++    Execute := CycleRampPhase AND CycleRampArmed AND CycleRampSignalValid,
++    Abort := bAbortSequence OR HMI_StopTest OR fbValveOpeningDetector.CandidateRejected
++        OR fbCycleRampShear.Error,
++    CurrentPressure := fbValveOpeningDetector.SelectedPressure,
++    TargetPressure := LoadedRecipe.CycleUpperHighPressure,
++    DropThreshold := CycleRampDropPSI,
++    DropConfirmTime := CycleRampDropConfirmTime,
++    MaxTestTime := T#5M,
++    AirOK := Safety_HPP1AirStatus
++);
++
++//******************
++// Cycle Test - Valve Monitor
++//******************
++// Valve opening detector: BEFORE fbCyclePressureTest, so confirmation reaches
++// its pass/fail logic in this scan. Observe previous-scan actual output commands.
++fbValveOpeningDetector(
++    Enable := (state = 600) AND NOT CycleFirstRampActive,
++    Reset := (state = 100) OR ((state = 600) AND (fbCyclePressureTest.State = 0))
++        OR bAbortSequence OR HMI_StopTest,
++    CycleState := fbCyclePressureTest.State,
++    CompletedCycleCount := fbCyclePressureTest.CycleCount,
++    PressureA := MAIN.PortAPressureFB.RawPSI,
++    PressureB := MAIN.PortBPressureFB.RawPSI,
++    PortAActive := PortA_Active,
++    PortBActive := PortB_Active,
++    BleedOpenA := NOT O_BleedValveA,
++    BleedOpenB := NOT O_BleedValveB,
++    DumpsClosed := (NOT PortA_Active OR O_DumpValveA)
++        AND (NOT PortB_Active OR O_DumpValveB),
++    PumpOff := NOT fbCyclePressureTest.Pump AND NOT PumpManualCmd,
++    SensorDataValid := (NOT PortA_Active OR ((PT[101].RawMax > PT[101].RawMin)
++        AND NOT MAIN.PortAPressureFB.OverRange AND (MAIN.PortAPressureFB.RawPSI >= -100.0)))
++        AND (NOT PortB_Active OR ((PT[102].RawMax > PT[102].RawMin)
++        AND NOT MAIN.PortBPressureFB.OverRange AND (MAIN.PortBPressureFB.RawPSI >= -100.0))),
++    // Add actual terminal/communication health to the expression above when mapped.
++    DetectionFilterAlpha := 0.20,
++    LowPressureMin := LoadedRecipe.CycleLowerLowPressure,
++    CycleTimeSeconds := 0.005,
++    SampleSeconds := 0.050,
++    CoastSeconds := 0.80,
++    CoastAllowancePSI := 200.0,
++    ConfirmSeconds := 0.30,
++    ConfirmDropPSI := 75.0,
++    VerificationTimeoutSeconds := 2.0,
++	PressurizingMode := CycleRampPhase,
++    ExternalCandidatePressurePSI := fbCycleRampShear.ShearPressure,
++    ExternalCandidatePressureA := CycleRampPeakA,
++    ExternalCandidatePressureB := CycleRampPeakB,
++	ExternalCandidate := fbCycleRampShear.ShearDetected,
++);
++
++// Snapshot BEFORE the cycle FB can stop the pump and the PID can reset.
++CycleApproachStateBefore := fbCyclePressureTest.State;
++CycleApproachLastITerm := fbVPPMHigh.ITerm;
++CycleApproachLastTrim := CycleApproachAppliedAirPSI;
++CycleApproachLastValid := fbVPPMHigh.Busy AND NOT fbVPPMHigh.Error
++    AND fbCyclePressureTest.Pump AND NOT fbVPPMHigh.OutputHighLimited
++    AND NOT fbVPPMHigh.OutputLowLimited;
++CycleApproachActive := CycleApproachLearnEnable AND (state = 600)
++    AND NOT bAbortSequence AND NOT HMI_StopTest AND HMI_EStopOK
++    AND Safety_HPP1AirStatus AND NOT PumpManualCmd
++    AND (CurrentTargetPressure > PumpSwapSetpoint);
++
++// Start each new test/configuration with the existing controller behavior.
++IF NOT CycleApproachActive OR NOT CycleApproachPreviousActive
++    OR (LoadedRecipe.CycleUpperHighPressure <> CycleApproachSavedUpperHigh)
++    OR (LoadedRecipe.CycleLowerHighPressure <> CycleApproachSavedLowerHigh)
++    OR (LoadedRecipe.CycleUpperLowPressure <> CycleApproachSavedUpperLow)
++    OR (LoadedRecipe.CycleLowerLowPressure <> CycleApproachSavedLowerLow)
++    OR (LoadedRecipe.CyclePressureHoldTime <> CycleApproachSavedHoldTime)
++    OR (PortA_Active <> CycleApproachSavedPortA)
++    OR (PortB_Active <> CycleApproachSavedPortB)
++THEN
++    CycleApproachLearnedAirPSI := 0.0;
++    CycleApproachCandidateAirPSI := 0.0;
++    CycleApproachCandidateValid := FALSE;
++    CycleApproachHoldPeakPSI := 0.0;
++    CycleApproachLastValid := FALSE;
++END_IF;
++CycleApproachPreviousActive := CycleApproachActive;
++CycleApproachSavedUpperHigh := LoadedRecipe.CycleUpperHighPressure;
++CycleApproachSavedLowerHigh := LoadedRecipe.CycleLowerHighPressure;
++CycleApproachSavedUpperLow := LoadedRecipe.CycleUpperLowPressure;
++CycleApproachSavedLowerLow := LoadedRecipe.CycleLowerLowPressure;
++CycleApproachSavedHoldTime := LoadedRecipe.CyclePressureHoldTime;
++CycleApproachSavedPortA := PortA_Active;
++CycleApproachSavedPortB := PortB_Active;
++
++fbCyclePressureTest(Execute := state = 600,
++			Abort := bAbortSequence OR HMI_StopTest,
++			SystemPressure := SystemPressure,
++			PressureA := PortACurrentPSI,
++			PressureB := PortBCurrentPSI,
++			PortA_Active := PortA_Active,
++			PortB_Active := PortB_Active,
++			LowPressureHigh := LoadedRecipe.CycleUpperLowPressure,
++			HighPressureHigh := LoadedRecipe.CycleUpperHighPressure,
++			LowPressureLow := LoadedRecipe.CycleLowerLowPressure,
++			HighPressureLow := LoadedRecipe.CycleLowerHighPressure,
++			TargetCycleCount := LoadedRecipe.CyclePinningNumber,
++			CycleVariation := LoadedRecipe.CycleVariation,
++			HoldTime := LoadedRecipe.CyclePressureHoldTime,
++			ValveOpeningCandidateRejected := fbValveOpeningDetector.CandidateRejected,
++			InitialRampEventFault := fbFirstRampEvent.Fault,
++            ValveOpenDetected := fbValveOpeningDetector.Detected OR fbFirstRampEvent.ReleaseConfirmed
++                OR (EnableManualValveOpeningSimulation AND ValveOpenDetected),
++			ValveOpeningCheckActive := fbValveOpeningDetector.CloseBleedRequest
++                OR fbFirstRampEvent.CheckActive,
++			EnableLegacyValveOpeningDetection := FALSE,
++			AirOK := Safety_HPP1AirStatus,
++			LowPressureTarget := (LoadedRecipe.CycleLowerLowPressure + LoadedRecipe.CycleUpperLowPressure) * 0.5,
++);
++
++
++// Only a completed, in-range HIGH HOLD may teach the next ramp.
++IF CycleApproachActive AND NOT fbCyclePressureTest.Failed
++    AND NOT fbCyclePressureTest.Error THEN
++    IF (CycleApproachStateBefore = 20) AND (fbCyclePressureTest.State = 30) THEN
++        CycleApproachCandidateValid := CycleApproachLastValid;
++        // Learn the steady correction, excluding proportional/derivative terms.
++        // Include the previous trim to avoid forgetting correction already applied.
++        CycleApproachCandidateAirPSI := LIMIT(0.0,
++            0.5 * (CycleApproachLastITerm + CycleApproachLastTrim),
++            LIMIT(0.0, CycleApproachMaxAirPSI, 0.20));
++        CycleApproachHoldPeakPSI := SystemPressure;
++    END_IF;
++    IF (CycleApproachStateBefore = 30) OR (fbCyclePressureTest.State = 30) THEN
++        CycleApproachHoldPeakPSI := MAX(CycleApproachHoldPeakPSI, SystemPressure);
++        IF (SystemPressure < LoadedRecipe.CycleLowerHighPressure)
++            OR (SystemPressure > LoadedRecipe.CycleUpperHighPressure) THEN
++            CycleApproachCandidateValid := FALSE;
++            CycleApproachLearnedAirPSI := 0.0;
++        END_IF;
++    END_IF;
++    IF (CycleApproachStateBefore = 30) AND (fbCyclePressureTest.State = 50) THEN
++        IF CycleApproachCandidateValid THEN
++            CycleApproachLearnedAirPSI := CycleApproachCandidateAirPSI;
++        END_IF;
++        CycleApproachCandidateValid := FALSE;
++    END_IF;
++ELSE
++    CycleApproachLearnedAirPSI := 0.0;
++    CycleApproachCandidateValid := FALSE;
++END_IF;
++
++// Blend from zero at 300 PSI error to full trim at 100 PSI error.
++// Existing PID feedback, slew limits and high-pressure stop remain in control.
++CycleApproachAppliedAirPSI := 0.0;
++CycleApproachBlend := 0.0;
++CycleApproachErrorPSI := CurrentTargetPressure - SystemPressure;
++IF CycleApproachActive AND (fbCyclePressureTest.State = 20)
++    AND fbCyclePressureTest.Pump AND (CycleApproachErrorPSI > 0.0) THEN
++    CycleApproachBlend := LIMIT(0.0, (300.0 - CycleApproachErrorPSI) / 200.0, 1.0);
++    CycleApproachAppliedAirPSI := CycleApproachBlend * LIMIT(0.0,
++        CycleApproachLearnedAirPSI, LIMIT(0.0, CycleApproachMaxAirPSI, 0.20));
++END_IF;
++
++//******************
++// Shear Test
++//******************
++fbShearTest(Execute := ShearTestActive
++					AND ((state = 200)
++					OR 	(state = 300)
++					OR 	(state = 650)),
++			Abort := bAbortSequence OR HMI_StopTest,
++			CurrentPressure := SystemPressure,
++			TargetPressure := LoadedRecipe.ShearTestPressure,
++			DropThreshold := LoadedRecipe.ShearDropThreshold,
++			DropConfirmTime := LoadedRecipe.ShearDropConfirmTime,
++			MaxTestTime := LoadedRecipe.ShearMaxTestTime,
++			AirOK := Safety_HPP1AirStatus)
++;
++
++
++//******************
++// VPPM Control - High Pressure   state = 600
++//******************
++VPPMHighActualPSI := INT_TO_LREAL(VPPMHighActualRaw) / 10.0;			
++fbVPPMHigh(Enable := fbPressurize.Pump 
++					OR (fbCyclePressureTest.Pump)
++					//OR (state = 190)
++					//OR (state = 195)
++					OR PumpManualCmd,
++	Reset := (state <> 200) AND (state <> 600),
++	HydraulicSetpoint := CurrentTargetPressure,
++	HydraulicActual := SystemPressure,
++	PneumaticActual := VPPMHighActualPSI,
++	PumpRatio := GVL.HIGH_PUMP_RATIO,
++	FeedForwardTrimAirPSI := CycleApproachAppliedAirPSI,
++	SetpointBias := 0.0,
++	HydraulicHighLimit := MAX_HIGH_PRESSURE_PSI,
++	PneumaticMin := 0.0,
++	PneumaticMax := 90.0,
++	Kp := 0.004,
++	Ti := SEL(state = 600, 5.0, 20.0), // 55.0 for Cycle Test
++	Td := 0.75, //  3.75 for Cycle Test
++	IntegralEnable := ABS(CurrentTargetPressure - SystemPressure) <= 300.0,
++	CycleTime := 0.005,
++	FilterAlpha := 0.80,
++	Deadband := SEL(state = 600, 0.0, 5.0),
++	MaxRiseRate := 25.0,
++	MaxFallRate := 100.0,
++	PneumaticTrackingTolerance := 3.0,
++	PneumaticTrackingDelay := T#2S,
++	EnableTrackingFault := FALSE	
++);
++
++
++//******************
++// VPPM Control - Low Pressure   (state <> 200) AND (state <> 600),
++//******************
++VPPMLowActualPSI := INT_TO_LREAL(VPPMLowActualRaw) / 10.0;			
++fbVPPMLow(Enable := fbPressurize.Pump 
++					OR (fbCyclePressureTest.Pump)
++					//OR (state = 190)
++					//OR (state = 195)
++					OR PumpManualCmd,
++	Reset := FALSE,
++	HydraulicSetpoint := CurrentTargetPressure,
++	HydraulicActual := PortACurrentPSI,
++	PneumaticActual := VPPMLowActualPSI,
++	PumpRatio := GVL.LOW_PUMP_RATIO,
++	SetpointBias := 15.0,
++	HydraulicHighLimit := 2660,
++	PneumaticMin := 0.0,
++	PneumaticMax := 90.0,
++	Kp := 0.04,
++	Ti := 400.0, //18.0
++	Td := 3.25,
++	CycleTime := 0.010,
++	FilterAlpha := 0.80,
++	Deadband := 5.0,
++	MaxRiseRate := 25.0,
++	MaxFallRate := 25.0,
++	PneumaticTrackingTolerance := 3.0,
++	PneumaticTrackingDelay := T#2S,
++	EnableTrackingFault := FALSE	
++);
++
++//**************************************************************
++// Test Elapsed Timer - Time to pressurize, perform test and depressurize.
++//**************************************************************
++TestElapsedTimer(
++		IN := SequenceActive AND NOT HMI_TestingCompleted,
++		PT := T#5H	);
++IF TestElapsedTimer.ET > DINT_TO_TIME(HMI_ExecutedTestTime) THEN
++TestElapsed := TestElapsedTimer.ET;
++HMI_ExecutedTestTime := TIME_TO_DINT(TestElapsedTimer.ET);
++END_IF
++
++
++//**************************************************************
++// Main Sequence
++//**************************************************************
++
++CASE state OF
++
++
++//******************
++// Waiting for Test
++//******************
++0:
++	HMI_StateName := 'STEP 0 - System Ready';
++	TestPassed := FALSE;
++	TestFailed := FALSE;
++	FailureReason := '';
++	LowHighTestActive := FALSE;
++	LowTestComplete := FALSE;
++	RepressurizeUsed := FALSE;
++	Auto_PumpCmd := FALSE;
++	IF NOT Safety_I_MachineIsReset THEN
++		state := 999;
++	ELSIF HMI_StartTest AND HMI_GatheringData AND bOkForHighPressureA THEN
++		HMI_Message := '';
++		state := 100;
++	ELSIF HMI_DepressurizeSystem THEN
++		state := 800;
++	END_IF
++
++
++//******************
++// Load Recipe / Select Test Type
++//******************
++100:
++	HMI_StateName := 'STEP 100 - Loading Test';
++	LOADRECIPE();
++	TestPassed := FALSE;
++	TestFailed := FALSE;
++	FailureReason := '';
++	RepressurizeUsed := FALSE;
++	HMI_HeaderEndPressureLow := 0;
++	HMI_PortAEndPressureLow := 0;
++	HMI_PortBEndPressureLow := 0;
++	HMI_HeaderEndPressureHigh := 0;
++	HMI_PortAEndPressureHigh := 0;
++	HMI_PortBEndPressureHigh := 0;
++	HMI_LowTestElapsedTime := 0;
++	HMI_HighTestElapsedTime := 0;
++
++	//******************
++	// Manual Mode Selection
++	//******************
++	IF ActiveRecipe.RecipeName = '' THEN
++		HMIStartTestPH := TRUE;
++		state := 190;	//Manual mode
++	ELSE
++	//******************
++	// Low Pressure Body Test
++	//******************
++	IF HMI_RecipeType = 'Low Pressure Test' THEN
++		LowHighTestActive := FALSE;
++		CurrentTargetPressure := LoadedRecipe.LowTestPressure;
++		CurrentTestDuration := DINT_TO_TIME(LoadedRecipe.LowTestDuration * 60000);
++		HMI_HeaderStartPressureHigh := 0;
++		HMI_PortAStartPressureHigh := 0;
++		HMI_PortBStartPressureHigh := 0;
++		HMI_HeaderEndPressureHigh := 0;
++		HMI_PortAEndPressureHigh := 0;
++		HMI_PortBEndPressureHigh := 0;
++		HMI_HeaderCurrentPressureDropHigh	:= 0;
++		HMI_PortACurrentPressureDropHigh	:= 0;
++		HMI_PortBCurrentPressureDropHigh	:= 0;
++		state := 110;
++
++
++	//******************
++	// High Pressure Body Test
++	//******************
++	ELSIF HMI_RecipeType ='High Pressure Test' THEN
++		LowHighTestActive := FALSE;
++		CurrentTargetPressure := LoadedRecipe.HighTestPressure;
++		CurrentTestDuration := DINT_TO_TIME(LoadedRecipe.HighTestDuration * 60000);
++		HMI_HeaderStartPressureLow := 0;
++		HMI_PortAStartPressureLow 	:= 0;
++		HMI_PortBStartPressureLow 	:= 0;
++		HMI_HeaderEndPressureLow 	:= 0;
++		HMI_PortAEndPressureLow 	:= 0;
++		HMI_PortBEndPressureLow 	:= 0;
++		HMI_HeaderCurrentPressureDropLow	:= 0;
++		HMI_PortACurrentPressureDropLow		:= 0;
++		HMI_PortBCurrentPressureDropLow		:= 0;
++		state := 110;
++
++
++	//******************
++	// Combined Low + High Body Test
++	//******************
++	ELSIF HMI_RecipeType = 'Low and High Pressure Test' THEN
++		LowHighTestActive := TRUE;
++		LowTestComplete := FALSE;
++		IF LowHighTestActive AND NOT LowTestComplete THEN
++			CurrentTargetPressure := LoadedRecipe.LowTestPressure;
++			CurrentTestDuration := DINT_TO_TIME(LoadedRecipe.LowTestDuration * 60000);
++		ELSE
++			CurrentTargetPressure := LoadedRecipe.HighTestPressure;
++			CurrentTestDuration := DINT_TO_TIME(LoadedRecipe.HighTestDuration * 60000);
++		END_IF
++		state := 110;
++
++		
++	//******************
++	// Shear Test
++	//******************
++	ELSIF HMI_RecipeType = 'Shear Test' THEN
++		ShearTestActive := TRUE;
++		CurrentTargetPressure := LoadedRecipe.ShearTestPressure;
++		CurrentTestDuration := LoadedRecipe.ShearMaxTestTime;
++		HMI_ShearPressure := 0.0;
++		HMI_ShearTime := T#0S;
++		state := 110;
++	
++
++	//******************
++	// XHBV Cycle Test
++	//******************
++	ELSIF HMI_RecipeType = 'XHBV Test' THEN
++		CurrentTargetPressure := LoadedRecipe.CycleUpperHighPressure;
++		CurrentTestDuration := LoadedRecipe.CyclePressureHoldTime;
++		state := 600;
++	ELSE
++		TestFailed := TRUE;
++		FailureReason := 'Invalid Test Recipe';
++		state := 900;
++	END_IF
++END_IF
++
++//******************
++// Calculate Test Limits
++//******************
++110:
++	HMI_StateName := 'STEP 110 - Calculate Test Parameters';
++	RepressurizeUsed := FALSE;
++	IF CurrentTargetPressure <= 0.0 THEN
++		TestFailed := TRUE;
++		FailureReason := 'Invalid Test Pressure';
++		state := 900;
++	ELSE
++
++		//******************
++		// Low Pressure Test
++		// Fixed PSI tolerance
++		//******************
++		IF CurrentTargetPressure <= 1000.0 THEN
++			MaxPressure := CurrentTargetPressure + LoadedRecipe.MaxTargetPressure;
++			MinPressure := CurrentTargetPressure - LoadedRecipe.MinTargetPressure;
++			MaxVariance := LoadedRecipe.MaxStableVariance;
++			MinVariance := LoadedRecipe.MinStableVariance;
++
++
++		//******************
++		// High Pressure Test
++		// Percentage tolerance
++		//******************
++		ELSE
++			MaxPressure := CurrentTargetPressure * (1.0 + LoadedRecipe.HighMaxTargetPressure / 100.0);
++			MinPressure := CurrentTargetPressure * (1.0 - LoadedRecipe.HighMinTargetPressure / 100.0);
++			MaxVariance := LoadedRecipe.HighMaxStableVar;
++			MinVariance := LoadedRecipe.HighMinStableVare;
++		END_IF
++
++
++		//******************
++		// Aim toward upper side of window
++		//******************
++		FillTargetPressure := CurrentTargetPressure ;
++		state := 200;
++	END_IF	
++
++//******************
++// Manual Operation
++//******************
++190:
++	HMI_StateName := 'STEP 190 - Manual Operation';
++	HMI_Message := 'Manual Controls Active';
++
++	HMI_InCycle := FALSE;
++
++	//Operator remains in full manual control here
++	ManualTestTimer(
++		IN := FALSE,
++		PT := T#0S	);
++
++	HMI_ExecutedTestTime := 0;
++	HMI_TimeRemainingInTest := TIME_TO_DINT(CurrentTestDuration);
++
++	IF HMI_StartTest OR HMIStartTestPH THEN
++		HMI_StartTest := FALSE;
++		HMIStartTestPH := FALSE;
++		//Convert operator-entered duration if HMI duration is minutes
++		CurrentTestDuration := DINT_TO_TIME(HMI_TestDuration * 60000);
++		HMI_PortAStartPressure := LREAL_TO_REAL(PortACurrentPSI);
++		HMI_PortBStartPressure := LREAL_TO_REAL(PortBCurrentPSI);
++		HMI_HeaderStartPressure := LREAL_TO_REAL(HeaderCurrentPSI);
++		HMI_InCycle := TRUE;
++
++		state := 195;
++
++	END_IF
++	
++
++//******************
++//  Manual Timed Test
++//******************
++195:
++	HMI_StateName := 'STEP 195 - Manual Test';
++	HMI_Message := 'Manual Test In Progress';
++	HMI_InCycle := TRUE;
++	ManualTestTimer(
++		IN := TRUE,
++		PT := CurrentTestDuration);
++
++	HMI_ExecutedTestTime :=	TIME_TO_DINT(ManualTestTimer.ET);
++
++	IF CurrentTestDuration >= ManualTestTimer.ET THEN
++		HMI_TimeRemainingInTest := TIME_TO_DINT(CurrentTestDuration - ManualTestTimer.ET);
++	ELSE
++		HMI_TimeRemainingInTest := 0;
++	END_IF
++
++
++	//Operator can still manually control valves/pump
++	//while this timer is running.
++	IF HMI_StopTest THEN
++		ManualTestTimer(
++			IN := FALSE,
++			PT := CurrentTestDuration);
++
++		HMI_StopTest := FALSE;
++		TestPassed := FALSE;
++		HMI_Message := 'Manual Test Stopped';
++		state := 197;
++
++	ELSIF ManualTestTimer.Q THEN
++		ManualTestTimer(
++			IN := FALSE,
++			PT := CurrentTestDuration);
++		HMI_ExecutedTestTime := TIME_TO_DINT(CurrentTestDuration);
++		HMI_TimeRemainingInTest := 0;
++		TestPassed := TRUE;
++		HMI_CycleFinished := TRUE;
++		state := 197;
++	END_IF
++	
++
++//**************************************************************
++// 197 - Manual Test Complete
++//**************************************************************
++197:
++	HMI_StateName := 'STEP 197 - Manual Test Complete';
++	HMI_InCycle := FALSE;
++	IF TestPassed THEN
++		HMI_Message := 'Manual Test Complete';
++	ELSE
++		HMI_Message := 'Manual Test Stopped';
++	END_IF
++
++	IF HMI_ReStartTest OR HMI_Continue THEN
++		HMI_ReStartTest := FALSE;
++		HMI_CycleFinished := FALSE;		
++		TestPassed := FALSE;
++		TestFailed := FALSE;
++		state := 190;
++	ELSIF HMI_DepressurizeSystem THEN
++		state := 800;
++	ELSIF HMI_FinishTest THEN
++		HMI_CycleFinished := FALSE;
++		HMI_HeaderEndPressure := LREAL_TO_REAL(HeaderCurrentPSI);
++		HMI_PortAEndPressure := LREAL_TO_REAL(PortACurrentPSI);
++		HMI_PortBEndPressure := LREAL_TO_REAL(PortBCurrentPSI);
++		HMI_HeaderEndPressureLow := LREAL_TO_REAL(HeaderCurrentPSI);
++		HMI_PortAEndPressureLow := LREAL_TO_REAL(PortACurrentPSI);
++		HMI_PortBEndPressureLow := LREAL_TO_REAL(PortBCurrentPSI);
++		HMI_FinishTest := FALSE;
++		state := 850;
++	ELSIF  HMI_StopTest THEN
++		HMI_StopTest := FALSE;
++		HMI_Message := 'Manual Test Stopped';
++		state := 850;
++	END_IF
++
++
++	
++//******************
++// Pressurize
++//******************
++200:
++	HMI_StateName := 'STEP 200 - Pressurizing System';
++	HMI_Message := 'Building Pressure';
++	DesiredPressure := CurrentTargetPressure;
++	SequenceActive := TRUE;
++	IF ShearTestActive AND fbShearTest.Done THEN
++		HMI_ShearPressure := LREAL_TO_REAL(fbShearTest.ShearPressure);
++		HMI_ShearTime := fbShearTest.ShearTime;
++		TestPeakPress := fbShearTest.ShearTime;
++	TestPassed := TRUE;
++	state := 800;
++
++	ELSIF HMI_StopTest THEN
++		state := 700;
++	ELSIF fbPressurize.Error OR NOT HMI_EStopOK THEN
++		TestFailed := TRUE;
++		FailureReason := 'Failed To Build Pressure';
++		state := 900;
++	ELSIF fbPressurize.Done THEN
++		state := 300;
++	END_IF;
++	
++	
++
++//******************
++// Stabilize Pressure
++//******************
++300:
++	HMI_StateName := 'STEP 300 - Stabilizing Pressure';
++	HMI_Message := 'Waiting for Pressure to Stabilize';
++	
++	IF ShearTestActive AND fbShearTest.Done THEN
++		HMI_ShearPressure := LREAL_TO_REAL(fbShearTest.ShearPressure);
++		HMI_ShearTime := fbShearTest.ShearTime;
++		TestPassed := TRUE;
++//		state := 800;
++	ELSIF HMI_StopTest THEN
++		state := 700;
++	ELSIF fbStabilize.OverPressure THEN
++		TestFailed := TRUE;
++		FailureReason := fbStabilize.FailureReason;
++		state := 900;
++
++	//******************
++	// Pressure fell below minimum
++	//******************
++//	ELSIF fbStabilize.NeedRepressurize THEN
++//		IF NOT RepressurizeUsed THEN
++//			RepressurizeUsed := TRUE;
++//			state := 200;
++//		ELSE
++//			TestFailed := TRUE;
++//			FailureReason := 'Pressure Fell Below Minimum After Repressurization';
++//			state := 900;
++//		END_IF
++	ELSIF fbStabilize.Error THEN
++		TestFailed := TRUE;
++		FailureReason := fbStabilize.FailureReason;
++		state := 900;
++
++	ELSIF fbStabilize.Done THEN
++		IF ShearTestActive THEN
++			state := 650;
++		ELSE
++			state := 400;
++		END_IF
++	END_IF
++	
++	
++//******************
++// Timed Pressure Hold
++//******************
++400:
++	HMI_StateName := 'STEP 400 - Pressure Hold';
++	HMI_Message := 'Test In Progress';
++	HMI_InCycle := TRUE;
++	SequenceActive := TRUE;
++	
++	
++	HMI_ExecutedTestTime :=	TIME_TO_DINT(fbPressureHold.ElapsedTime);
++	IF CurrentTestDuration >= fbPressureHold.ElapsedTime THEN
++		HMI_TimeRemainingInTest := TIME_TO_DINT(CurrentTestDuration - fbPressureHold.ElapsedTime);
++	ELSE
++		HMI_TimeRemainingInTest := 0;
++	END_IF
++	
++	IF CurrentTargetPressure <= PumpSwapSetpoint THEN
++		HMI_HeaderStartPressure := LREAL_TO_REAL(fbPressureHold.HeaderStartPressure);
++		HMI_HeaderEndPressure := LREAL_TO_REAL(fbPressureHold.HeaderEndPressure);
++		HMI_PortAStartPressure := LREAL_TO_REAL(fbPressureHold.PortAStartPressure);
++		HMI_PortBStartPressure := LREAL_TO_REAL(fbPressureHold.PortBStartPressure);
++		HMI_HeaderCurrentPressureDrop := LREAL_TO_REAL(fbPressureHold.CurrentHeaderPressureDrop);
++		HMI_PortACurrentPressureDrop := LREAL_TO_REAL(fbPressureHold.CurrentPressureDropA);
++		HMI_PortBCurrentPressureDrop := LREAL_TO_REAL(fbPressureHold.CurrentPressureDropB);
++		HMI_HeaderStartPressureLow := LREAL_TO_REAL(fbPressureHold.HeaderStartPressure);
++		HMI_PortAStartPressureLow := LREAL_TO_REAL(fbPressureHold.PortAStartPressure);
++		HMI_PortBStartPressureLow := LREAL_TO_REAL(fbPressureHold.PortBStartPressure);
++		HMI_HeaderCurrentPressureDropLow := LREAL_TO_REAL(fbPressureHold.CurrentHeaderPressureDrop);
++		HMI_PortACurrentPressureDropLow := LREAL_TO_REAL(fbPressureHold.CurrentPressureDropA);
++		HMI_PortBCurrentPressureDropLow := LREAL_TO_REAL(fbPressureHold.CurrentPressureDropB);
++		HMI_LowTestElapsedTime := TIME_TO_DINT(fbPressureHold.ElapsedTime);
++	ELSE
++		HMI_HeaderStartPressure := LREAL_TO_REAL(fbPressureHold.HeaderStartPressure);
++		HMI_PortAStartPressure := LREAL_TO_REAL(fbPressureHold.PortAStartPressure);
++		HMI_PortBStartPressure := LREAL_TO_REAL(fbPressureHold.PortBStartPressure);
++		HMI_HeaderCurrentPressureDrop := LREAL_TO_REAL(fbPressureHold.CurrentHeaderPressureDrop);
++		HMI_PortACurrentPressureDrop := LREAL_TO_REAL(fbPressureHold.CurrentPressureDropA);
++		HMI_PortBCurrentPressureDrop := LREAL_TO_REAL(fbPressureHold.CurrentPressureDropB);
++		HMI_HeaderStartPressureHigh := LREAL_TO_REAL(fbPressureHold.HeaderStartPressure);
++		HMI_PortAStartPressureHigh := LREAL_TO_REAL(fbPressureHold.PortAStartPressure);
++		HMI_PortBStartPressureHigh := LREAL_TO_REAL(fbPressureHold.PortBStartPressure);
++		HMI_HeaderCurrentPressureDropHigh := LREAL_TO_REAL(fbPressureHold.CurrentHeaderPressureDrop);
++		HMI_PortACurrentPressureDropHigh := LREAL_TO_REAL(fbPressureHold.CurrentPressureDropA);
++		HMI_PortBCurrentPressureDropHigh := LREAL_TO_REAL(fbPressureHold.CurrentPressureDropB);
++		HMI_HighTestElapsedTime := TIME_TO_DINT(fbPressureHold.ElapsedTime);
++	END_IF
++	
++	
++	IF HMI_StopTest THEN
++		state := 700;
++	ELSIF fbPressureHold.Error THEN
++		TestFailed := TRUE;
++		FailureReason := fbPressureHold.FailureReason;
++		state := 900;
++	ELSIF fbPressureHold.Done THEN
++		TestPassed := TRUE;
++		state := 500;
++	END_IF
++	
++	
++//******************
++// Test Stage Complete
++//******************
++500:
++	HMI_StateName := 'STEP 500 - Test Stage Complete';
++
++	//******************
++	// Combined Low -> High Test
++	//******************
++	IF LowHighTestActive AND NOT LowTestComplete THEN
++		LowTestComplete := TRUE;
++		TestPassed := FALSE;
++		CurrentTargetPressure := LoadedRecipe.HighTestPressure;
++		CurrentTestDuration := DINT_TO_TIME(LoadedRecipe.HighTestDuration * 60000);
++		HMI_HeaderEndPressureLow := LREAL_TO_REAL(fbPressureHold.HeaderPressure);
++		HMI_PortAEndPressureLow := LREAL_TO_REAL(fbPressureHold.PortAPressure);
++		HMI_PortBEndPressureLow := LREAL_TO_REAL(fbPressureHold.PortBPressure);
++		RepressurizeUsed := FALSE;
++		state := 110;
++	ELSE
++		TestPassed := TRUE;
++		IF CurrentTargetPressure <= PumpSwapSetpoint  THEN
++			HMI_HeaderEndPressureLow := LREAL_TO_REAL(fbPressureHold.HeaderPressure);
++			HMI_PortAEndPressureLow := LREAL_TO_REAL(fbPressureHold.PortAPressure);
++			HMI_PortBEndPressureLow := LREAL_TO_REAL(fbPressureHold.PortBPressure);
++		ELSE
++			HMI_HeaderEndPressureHigh := LREAL_TO_REAL(fbPressureHold.HeaderPressure);
++			HMI_PortAEndPressureHigh := LREAL_TO_REAL(fbPressureHold.PortAPressure);
++			HMI_PortBEndPressureHigh := LREAL_TO_REAL(fbPressureHold.PortBPressure);
++		END_IF
++		state := 800; 
++	END_IF
++	
++	
++//******************
++// XHBV Cycle Test
++//******************
++600:
++	HMI_StateName := 'STEP 600 - Cycle Pressure Test';
++	HMI_CycleCount := UINT_TO_INT(fbCyclePressureTest.CycleCount);
++	SequenceActive := TRUE;
++	HMI_TimeRemainingInTest := TIME_TO_DINT(fbCyclePressureTest.TimeRemaining);
++	
++	IF HMI_StopTest THEN
++		state := 700;
++	ELSIF fbCyclePressureTest.Failed THEN
++		TestFailed := TRUE;
++		FailureReason := fbCyclePressureTest.FailureReason;
++		state := 900;
++	ELSIF fbCyclePressureTest.Done THEN
++		TestPassed := TRUE;
++		state := 800;
++	END_IF
++
++
++//******************
++// Shear Test
++//******************
++650:
++	HMI_StateName := 'STEP 650 - Shear Test';
++	HMI_Message := 'Pressurizing - Waiting for Shear Event';
++	HMI_InCycle := TRUE;
++
++
++	//******************
++	// Live values
++	//******************
++	HMI_ShearPressure := LREAL_TO_REAL(fbShearTest.PeakPressure);
++	HMI_ExecutedTestTime := TIME_TO_DINT(fbShearTest.ElapsedTime);
++	
++
++	//******************
++	// Operator abort
++	//******************
++	IF HMI_StopTest THEN
++		TestPassed := FALSE;
++		state := 700;
++
++
++	//******************
++	// Shear test fault / no shear
++	//******************
++	ELSIF fbShearTest.Error THEN
++		TestFailed := TRUE;
++		FailureReason := fbShearTest.FailureReason;
++		state := 900;
++
++
++	//******************
++	// Shear detected
++	//******************
++	ELSIF fbShearTest.Done THEN
++		HMI_ShearPressure := LREAL_TO_REAL(fbShearTest.ShearPressure);
++		HMI_ShearTime := fbShearTest.ShearTime;
++		TestPassed := TRUE;
++		HMI_Message := 'Shear Event Detected';
++		state := 200;
++	END_IF
++
++	
++//******************
++// Operator Abort
++//******************
++700:
++	HMI_StateName := 'STEP 700 - Test Stopped';
++	HMI_Message := 'Test Cycle Stopped by Operator';
++	TestFailed := TRUE;
++	FailureReason := 'Test Cycle Stopped by Operator';
++	TestPassed := FALSE;
++	state := 800;
++	
++	
++//******************
++// Depressurize
++//******************
++800:
++	HMI_StateName := 'STEP 800 - Depressurizing';
++	IF fbDepressurize.Error THEN
++		TestFailed := TRUE;
++		FailureReason := fbDepressurize.FailureReason;
++		state := 999;
++	ELSIF fbDepressurize.Done THEN
++		HMI_Message := 'System is Depressurized';
++		state := 850;
++	ELSIF  HMI_StopTest THEN
++		HMI_StopTest := FALSE;
++		state := 850;
++	ELSE
++		HMI_Message := 'Waiting for System to Depressurize';
++	END_IF
++	
++	
++//******************
++// Test Complete
++//******************
++850:
++	HMI_StateName := 'STEP 850 - Test Complete';
++	HMI_InCycle := FALSE;
++	SequenceActive := FALSE;
++	IF TestFailed THEN
++		HMI_Message := CONCAT('Test Failed - ', FailureReason);
++	ELSE
++		HMI_Message := 'Test Complete';
++		FailureReason := 'Test Criteria Passed';
++	END_IF
++	IF HMI_GatheringData THEN
++		HMI_TestingCompleted := TRUE;
++		HMI_GatheringData := FALSE;
++		state := 875;
++	ELSE
++		HMI_InCycle := FALSE;
++		state := 0;
++	END_IF
++	
++//******************
++// Wait for Save / Finish
++//******************
++875:
++	HMI_StateName := 'STEP 875 - Waiting On Operator';
++	IF HMI_SaveTest OR HMI_StopTest OR NOT HMI_EStopOK THEN
++		HMI_TestingCompleted := FALSE;
++		HMI_SaveTest := FALSE;
++		UNLOADRECIPE();
++		HMI_ExecutedTestTime := 0;
++		state := 0;
++	END_IF
++	
++
++//******************
++// Test Failed
++//******************
++900:
++	HMI_StateName := 'STEP 900 - Test Failed';
++	TestPassed := FALSE;
++	TestFailed := TRUE;
++	HMI_Message := CONCAT('Test Failed - ', FailureReason);
++	state := 800;
++	
++	
++//******************
++// Safety Fault
++//******************
++999:
++	HMI_InCycle := FALSE;
++	SequenceActive := FALSE;
++	Auto_PumpCmd := FALSE;
++	IF NOT HMI_EStopOK THEN
++		IF NOT I_EStop1A THEN
++			HMI_Message := 'Main E-Stop pressed';
++		ELSIF NOT I_EStop2A THEN
++			HMI_Message := 'Back E-Stop pressed';
++		END_IF
++	ELSIF NOT Safety_I_EStopIsReset THEN
++		HMI_Message := 'Press Reset to begin';
++	ELSIF NOT Door1.Closed THEN
++		HMI_Message := 'Door 1 not closed';
++	ELSIF NOT Door2.Closed THEN
++		HMI_Message := 'Door 2 not closed';
++	ELSIF NOT bAirCabDoor1State THEN
++		HMI_Message := 'Air cabinet door not closed';
++	ELSE
++		HMI_Message := 'Press Reset to begin';
++	END_IF
++
++	IF Safety_I_MachineIsReset THEN
++		HMI_Message := '';
++		state := 0;
++	END_IF
++	
++	IF HMI_StopTest THEN
++		UNLOADRECIPE();
++	END_IF
++
++END_CASE
++
++
++//******************
++// Automatic Valve Setup
++//******************
++
++CASE state OF
++	200:
++		Auto_PumpCmd := fbPressurize.Pump;
++		Auto_DumpValveACmd := fbPressurize.DumpValveA;
++		Auto_DumpValveBCmd := fbPressurize.DumpValveB;
++		Auto_PortABlockValveCmd := fbPressurize.BlockValveA;
++		Auto_PortBBlockValveCmd := fbPressurize.BlockValveB;
++
++	300, 400:
++		Auto_PumpCmd := FALSE;
++		Auto_DumpValveACmd := TRUE;
++		Auto_DumpValveBCmd := TRUE;
++		Auto_PortABlockValveCmd := TRUE;
++		Auto_PortBBlockValveCmd := TRUE;
++		Auto_PumpCmd := FALSE;
++	
++
++	600:
++		Auto_PumpCmd := fbCyclePressureTest.Pump;
++		Auto_DumpValveACmd := fbCyclePressureTest.DumpValveA;
++		Auto_DumpValveBCmd := fbCyclePressureTest.DumpValveB;
++		Auto_BleedValveACmd := fbCyclePressureTest.BleedValveA;
++		Auto_BleedValveBCmd := fbCyclePressureTest.BleedValveB;
++		Auto_PortABlockValveCmd := fbCyclePressureTest.BlockValveA;
++		Auto_PortBBlockValveCmd := fbCyclePressureTest.BlockValveB;
++
++	800:
++		Auto_PumpCmd := fbDepressurize.Pump;
++		Auto_DumpValveACmd := fbDepressurize.DumpValveA;
++		Auto_DumpValveBCmd := fbDepressurize.DumpValveB;
++		Auto_PortABlockValveCmd := fbDepressurize.BlockValveA;
++		Auto_PortBBlockValveCmd := fbDepressurize.BlockValveB;
++	ELSE
++		Auto_PumpCmd := FALSE;
++		Auto_DumpValveACmd := FALSE;
++		Auto_DumpValveBCmd := FALSE;
++		Auto_BleedValveACmd := FALSE;
++		Auto_BleedValveBCmd := FALSE;
++		Auto_PortABlockValveCmd := FALSE;
++		Auto_PortBBlockValveCmd := FALSE;
++END_CASE;
++
++
++//******************
++// Final Output Selection
++//******************
++// Depressurize takes output authority even when entered from manual mode.
++IF state = 800 THEN
++    SequenceActive := TRUE;
++    PumpManualCmd := FALSE;
++    HMI_TogglePump := FALSE;
++    DesiredPressure := 0.0;
++END_IF;
++VALVES();
++
++//Bleed Valves always functional from HMI ONLY
++IF state = 600 THEN
++    O_BleedValveA := Auto_BleedValveACmd;
++    O_BleedValveB := Auto_BleedValveBCmd;
++ELSE
++    O_BleedValveA := VALVES.HMI_BleedValveACmd;
++    O_BleedValveB := VALVES.HMI_BleedValveBCmd;
++END_IF;
++
++IF SequenceActive THEN
++	O_DumpValveA := Auto_DumpValveACmd;
++	O_DumpValveB := Auto_DumpValveBCmd;
++	O_PortABlockValve := Auto_PortABlockValveCmd;
++	O_PortBBlockValve := Auto_PortBBlockValveCmd;
++ELSE
++	O_DumpValveA := VALVES.HMI_DumpValveACmd;
++	O_DumpValveB := VALVES.HMI_DumpValveBCmd;
++	O_PortABlockValve := VALVES.HMI_PortABlockValveCmd;
++	O_PortBBlockValve := VALVES.HMI_PortBBlockValveCmd;
++END_IF;
++
++CASE state OF
++	0, 190, 195, 197:
++		SequenceActive := FALSE;
++END_CASE
++
++IF SequenceActive THEN
++	CASE state OF
++		200:
++			DesiredPressure := CurrentTargetPressure;
++			HMI_TestPressure := LREAL_TO_DINT(DesiredPressure);
++		ELSE
++			DesiredPressure := 0.0;
++		
++		600:
++			//Eventually cycle-test pressure command here
++			DesiredPressure := LREAL_TO_DINT(fbCyclePressureTest.DesiredPressure);	
++			HMI_TestPressure := LREAL_TO_DINT(fbCyclePressureTest.DesiredPressure);
++	END_CASE
++ELSE
++	IF HMI_TogglePump THEN
++		PumpManualCmd := NOT PumpManualCmd;
++	END_IF
++	IF PumpManualCmd AND Safety_HPP1AirStatus THEN
++		DesiredPressure := HMI_TestPressure;
++		CurrentTargetPressure := HMI_TestPressure;
++	ELSE
++		DesiredPressure := 0.0;
++	END_IF
++END_IF]]></ST>
++    </Implementation>
++    <LineIds Name="SEQUENCE">
++      <LineId Id="2357" Count="2" />
++      <LineId Id="2361" Count="4" />
++      <LineId Id="2497" Count="0" />
++      <LineId Id="2369" Count="1" />
++      <LineId Id="4877" Count="1" />
++      <LineId Id="2372" Count="1" />
++      <LineId Id="3715" Count="0" />
++      <LineId Id="2375" Count="1" />
++      <LineId Id="2378" Count="1" />
++      <LineId Id="2381" Count="4" />
++      <LineId Id="2387" Count="0" />
++      <LineId Id="4670" Count="0" />
++      <LineId Id="4672" Count="1" />
++      <LineId Id="4675" Count="1" />
++      <LineId Id="4678" Count="0" />
++      <LineId Id="4680" Count="0" />
++      <LineId Id="4682" Count="0" />
++      <LineId Id="4668" Count="0" />
++      <LineId Id="2404" Count="0" />
++      <LineId Id="2406" Count="4" />
++      <LineId Id="4685" Count="2" />
++      <LineId Id="4690" Count="0" />
++      <LineId Id="4693" Count="0" />
++      <LineId Id="4750" Count="1" />
++      <LineId Id="4694" Count="1" />
++      <LineId Id="4875" Count="0" />
++      <LineId Id="4699" Count="0" />
++      <LineId Id="4702" Count="0" />
++      <LineId Id="4684" Count="0" />
++      <LineId Id="4819" Count="0" />
++      <LineId Id="2441" Count="4" />
++      <LineId Id="2447" Count="0" />
++      <LineId Id="2449" Count="1" />
++      <LineId Id="4983" Count="1" />
++      <LineId Id="2452" Count="1" />
++      <LineId Id="2455" Count="0" />
++      <LineId Id="2457" Count="1" />
++      <LineId Id="5165" Count="0" />
++      <LineId Id="5182" Count="1" />
++      <LineId Id="5166" Count="3" />
++      <LineId Id="5172" Count="0" />
++      <LineId Id="5174" Count="0" />
++      <LineId Id="5177" Count="4" />
++      <LineId Id="2459" Count="1" />
++      <LineId Id="5186" Count="0" />
++      <LineId Id="2461" Count="3" />
++      <LineId Id="2466" Count="0" />
++      <LineId Id="4804" Count="0" />
++      <LineId Id="2468" Count="1" />
++      <LineId Id="4873" Count="1" />
++      <LineId Id="2471" Count="0" />
++      <LineId Id="2474" Count="0" />
++      <LineId Id="2477" Count="0" />
++      <LineId Id="2480" Count="0" />
++      <LineId Id="2483" Count="0" />
++      <LineId Id="2486" Count="0" />
++      <LineId Id="2489" Count="0" />
++      <LineId Id="2492" Count="0" />
++      <LineId Id="2495" Count="0" />
++      <LineId Id="5085" Count="0" />
++      <LineId Id="5" Count="0" />
++      <LineId Id="4004" Count="1" />
++      <LineId Id="3981" Count="2" />
++      <LineId Id="4147" Count="0" />
++      <LineId Id="4149" Count="0" />
++      <LineId Id="4152" Count="0" />
++      <LineId Id="4154" Count="0" />
++      <LineId Id="3986" Count="0" />
++      <LineId Id="3988" Count="0" />
++      <LineId Id="3990" Count="0" />
++      <LineId Id="3993" Count="0" />
++      <LineId Id="5187" Count="1" />
++      <LineId Id="3996" Count="0" />
++      <LineId Id="3999" Count="0" />
++      <LineId Id="4002" Count="0" />
++      <LineId Id="4416" Count="4" />
++      <LineId Id="4400" Count="1" />
++      <LineId Id="4340" Count="0" />
++      <LineId Id="4608" Count="0" />
++      <LineId Id="4610" Count="1" />
++      <LineId Id="4609" Count="0" />
++      <LineId Id="4342" Count="0" />
++      <LineId Id="4344" Count="0" />
++      <LineId Id="4347" Count="0" />
++      <LineId Id="4350" Count="0" />
++      <LineId Id="4353" Count="0" />
++      <LineId Id="4356" Count="0" />
++      <LineId Id="4359" Count="0" />
++      <LineId Id="4362" Count="0" />
++      <LineId Id="4365" Count="0" />
++      <LineId Id="4368" Count="0" />
++      <LineId Id="4371" Count="0" />
++      <LineId Id="4374" Count="0" />
++      <LineId Id="5088" Count="0" />
++      <LineId Id="4377" Count="0" />
++      <LineId Id="4380" Count="0" />
++      <LineId Id="4383" Count="0" />
++      <LineId Id="4386" Count="0" />
++      <LineId Id="4389" Count="0" />
++      <LineId Id="4392" Count="0" />
++      <LineId Id="4395" Count="0" />
++      <LineId Id="4398" Count="0" />
++      <LineId Id="4339" Count="0" />
++      <LineId Id="4518" Count="6" />
++      <LineId Id="4603" Count="3" />
++      <LineId Id="4525" Count="19" />
++      <LineId Id="4406" Count="0" />
++      <LineId Id="2499" Count="0" />
++      <LineId Id="3921" Count="1" />
++      <LineId Id="3918" Count="2" />
++      <LineId Id="3917" Count="0" />
++      <LineId Id="3924" Count="0" />
++      <LineId Id="2500" Count="0" />
++      <LineId Id="3927" Count="0" />
++      <LineId Id="2501" Count="0" />
++      <LineId Id="3926" Count="0" />
++      <LineId Id="2502" Count="0" />
++      <LineId Id="2631" Count="1" />
++      <LineId Id="5280" Count="0" />
++      <LineId Id="2503" Count="9" />
++      <LineId Id="2514" Count="2" />
++      <LineId Id="2518" Count="1" />
++      <LineId Id="2521" Count="0" />
++      <LineId Id="2523" Count="0" />
++      <LineId Id="2526" Count="0" />
++      <LineId Id="2528" Count="0" />
++      <LineId Id="2530" Count="0" />
++      <LineId Id="2532" Count="1" />
++      <LineId Id="2535" Count="0" />
++      <LineId Id="2537" Count="0" />
++      <LineId Id="2539" Count="7" />
++      <LineId Id="2548" Count="0" />
++      <LineId Id="2550" Count="2" />
++      <LineId Id="2554" Count="0" />
++      <LineId Id="4820" Count="2" />
++      <LineId Id="4824" Count="2" />
++      <LineId Id="4981" Count="1" />
++      <LineId Id="3425" Count="0" />
++      <LineId Id="3429" Count="1" />
++      <LineId Id="2556" Count="0" />
++      <LineId Id="3427" Count="1" />
++      <LineId Id="3426" Count="0" />
++      <LineId Id="3431" Count="0" />
++      <LineId Id="2557" Count="2" />
++      <LineId Id="4802" Count="0" />
++      <LineId Id="2563" Count="0" />
++      <LineId Id="2565" Count="0" />
++      <LineId Id="2568" Count="0" />
++      <LineId Id="3859" Count="1" />
++      <LineId Id="3858" Count="0" />
++      <LineId Id="3862" Count="1" />
++      <LineId Id="3861" Count="0" />
++      <LineId Id="3870" Count="0" />
++      <LineId Id="3873" Count="0" />
++      <LineId Id="3871" Count="0" />
++      <LineId Id="2573" Count="6" />
++      <LineId Id="2582" Count="0" />
++      <LineId Id="2584" Count="0" />
++      <LineId Id="2587" Count="0" />
++      <LineId Id="3865" Count="4" />
++      <LineId Id="3864" Count="0" />
++      <LineId Id="3875" Count="1" />
++      <LineId Id="3874" Count="0" />
++      <LineId Id="2592" Count="6" />
++      <LineId Id="2601" Count="1" />
++      <LineId Id="4547" Count="0" />
++      <LineId Id="2604" Count="0" />
++      <LineId Id="2607" Count="0" />
++      <LineId Id="4548" Count="3" />
++      <LineId Id="2612" Count="0" />
++      <LineId Id="3969" Count="0" />
++      <LineId Id="2613" Count="0" />
++      <LineId Id="3971" Count="3" />
++      <LineId Id="4122" Count="0" />
++      <LineId Id="4126" Count="0" />
++      <LineId Id="4129" Count="0" />
++      <LineId Id="4132" Count="1" />
++      <LineId Id="3975" Count="0" />
++      <LineId Id="3970" Count="0" />
++      <LineId Id="2614" Count="4" />
++      <LineId Id="4240" Count="1" />
++      <LineId Id="2621" Count="0" />
++      <LineId Id="2624" Count="0" />
++      <LineId Id="2626" Count="1" />
++      <LineId Id="2629" Count="0" />
++      <LineId Id="2498" Count="0" />
++      <LineId Id="2634" Count="0" />
++      <LineId Id="3432" Count="0" />
++      <LineId Id="2635" Count="4" />
++      <LineId Id="2641" Count="0" />
++      <LineId Id="2644" Count="0" />
++      <LineId Id="2646" Count="1" />
++      <LineId Id="2649" Count="0" />
++      <LineId Id="2651" Count="6" />
++      <LineId Id="2659" Count="0" />
++      <LineId Id="2663" Count="0" />
++      <LineId Id="2667" Count="0" />
++      <LineId Id="2670" Count="0" />
++      <LineId Id="2672" Count="6" />
++      <LineId Id="2680" Count="0" />
++      <LineId Id="2689" Count="0" />
++      <LineId Id="2698" Count="0" />
++      <LineId Id="2701" Count="0" />
++      <LineId Id="2704" Count="5" />
++      <LineId Id="4472" Count="0" />
++      <LineId Id="2719" Count="0" />
++      <LineId Id="2633" Count="0" />
++      <LineId Id="2749" Count="0" />
++      <LineId Id="3433" Count="6" />
++      <LineId Id="3460" Count="2" />
++      <LineId Id="3464" Count="2" />
++      <LineId Id="3468" Count="4" />
++      <LineId Id="3474" Count="0" />
++      <LineId Id="3620" Count="0" />
++      <LineId Id="3476" Count="1" />
++      <LineId Id="3480" Count="0" />
++      <LineId Id="3483" Count="0" />
++      <LineId Id="3485" Count="3" />
++      <LineId Id="2722" Count="0" />
++      <LineId Id="3445" Count="0" />
++      <LineId Id="3444" Count="0" />
++      <LineId Id="3491" Count="6" />
++      <LineId Id="3499" Count="0" />
++      <LineId Id="3501" Count="2" />
++      <LineId Id="3505" Count="1" />
++      <LineId Id="3508" Count="1" />
++      <LineId Id="3511" Count="0" />
++      <LineId Id="3514" Count="0" />
++      <LineId Id="3516" Count="0" />
++      <LineId Id="3518" Count="4" />
++      <LineId Id="3525" Count="0" />
++      <LineId Id="3527" Count="2" />
++      <LineId Id="3531" Count="1" />
++      <LineId Id="3534" Count="1" />
++      <LineId Id="3537" Count="1" />
++      <LineId Id="3540" Count="0" />
++      <LineId Id="3542" Count="2" />
++      <LineId Id="3547" Count="0" />
++      <LineId Id="3550" Count="0" />
++      <LineId Id="3553" Count="0" />
++      <LineId Id="3610" Count="0" />
++      <LineId Id="3555" Count="0" />
++      <LineId Id="3489" Count="0" />
++      <LineId Id="3557" Count="6" />
++      <LineId Id="3565" Count="0" />
++      <LineId Id="3567" Count="0" />
++      <LineId Id="3569" Count="0" />
++      <LineId Id="3571" Count="0" />
++      <LineId Id="3573" Count="0" />
++      <LineId Id="3575" Count="0" />
++      <LineId Id="3577" Count="1" />
++      <LineId Id="3580" Count="1" />
++      <LineId Id="3618" Count="0" />
++      <LineId Id="3616" Count="0" />
++      <LineId Id="3583" Count="0" />
++      <LineId Id="3586" Count="0" />
++      <LineId Id="3588" Count="0" />
++      <LineId Id="3591" Count="0" />
++      <LineId Id="3612" Count="2" />
++      <LineId Id="3611" Count="0" />
++      <LineId Id="3806" Count="1" />
++      <LineId Id="3805" Count="0" />
++      <LineId Id="3593" Count="1" />
++      <LineId Id="4806" Count="0" />
++      <LineId Id="4811" Count="0" />
++      <LineId Id="4813" Count="0" />
++      <LineId Id="4805" Count="0" />
++      <LineId Id="3490" Count="0" />
++      <LineId Id="3597" Count="1" />
++      <LineId Id="3596" Count="0" />
++      <LineId Id="2723" Count="4" />
++      <LineId Id="3317" Count="0" />
++      <LineId Id="3321" Count="0" />
++      <LineId Id="3318" Count="0" />
++      <LineId Id="4160" Count="0" />
++      <LineId Id="4163" Count="0" />
++      <LineId Id="4168" Count="0" />
++      <LineId Id="4196" Count="0" />
++      <LineId Id="4173" Count="0" />
++      <LineId Id="2731" Count="0" />
++      <LineId Id="4159" Count="0" />
++      <LineId Id="4156" Count="0" />
++      <LineId Id="2733" Count="0" />
++      <LineId Id="2736" Count="0" />
++      <LineId Id="2738" Count="1" />
++      <LineId Id="2742" Count="0" />
++      <LineId Id="2745" Count="0" />
++      <LineId Id="4468" Count="0" />
++      <LineId Id="4466" Count="0" />
++      <LineId Id="2747" Count="0" />
++      <LineId Id="2750" Count="0" />
++      <LineId Id="2752" Count="6" />
++      <LineId Id="3356" Count="0" />
++      <LineId Id="4176" Count="0" />
++      <LineId Id="4179" Count="0" />
++      <LineId Id="4184" Count="0" />
++      <LineId Id="4195" Count="0" />
++      <LineId Id="4191" Count="0" />
++      <LineId Id="4175" Count="0" />
++      <LineId Id="2763" Count="0" />
++      <LineId Id="2766" Count="0" />
++      <LineId Id="2768" Count="0" />
++      <LineId Id="2770" Count="0" />
++      <LineId Id="2773" Count="1" />
++      <LineId Id="2776" Count="3" />
++      <LineId Id="2781" Count="0" />
++      <LineId Id="2783" Count="0" />
++      <LineId Id="2786" Count="0" />
++      <LineId Id="2788" Count="0" />
++      <LineId Id="2790" Count="0" />
++      <LineId Id="2792" Count="0" />
++      <LineId Id="2795" Count="0" />
++      <LineId Id="2797" Count="0" />
++      <LineId Id="2800" Count="0" />
++      <LineId Id="2802" Count="0" />
++      <LineId Id="2804" Count="0" />
++      <LineId Id="2807" Count="0" />
++      <LineId Id="2809" Count="0" />
++      <LineId Id="4135" Count="0" />
++      <LineId Id="4137" Count="0" />
++      <LineId Id="4139" Count="0" />
++      <LineId Id="4141" Count="0" />
++      <LineId Id="4143" Count="0" />
++      <LineId Id="4145" Count="0" />
++      <LineId Id="2751" Count="0" />
++      <LineId Id="2814" Count="1" />
++      <LineId Id="2817" Count="5" />
++      <LineId Id="2824" Count="0" />
++      <LineId Id="3235" Count="0" />
++      <LineId Id="3369" Count="0" />
++      <LineId Id="3374" Count="0" />
++      <LineId Id="3242" Count="0" />
++      <LineId Id="3246" Count="0" />
++      <LineId Id="3248" Count="0" />
++      <LineId Id="3252" Count="0" />
++      <LineId Id="3254" Count="0" />
++      <LineId Id="3240" Count="1" />
++      <LineId Id="3659" Count="0" />
++      <LineId Id="3423" Count="0" />
++      <LineId Id="4703" Count="0" />
++      <LineId Id="2827" Count="0" />
++      <LineId Id="4552" Count="0" />
++      <LineId Id="3422" Count="0" />
++      <LineId Id="2838" Count="0" />
++      <LineId Id="2843" Count="0" />
++      <LineId Id="3794" Count="4" />
++      <LineId Id="3793" Count="0" />
++      <LineId Id="4880" Count="0" />
++      <LineId Id="3660" Count="0" />
++      <LineId Id="3800" Count="4" />
++      <LineId Id="3799" Count="0" />
++      <LineId Id="3666" Count="4" />
++      <LineId Id="3661" Count="0" />
++      <LineId Id="4881" Count="0" />
++      <LineId Id="3663" Count="2" />
++      <LineId Id="2849" Count="0" />
++      <LineId Id="2851" Count="0" />
++      <LineId Id="2854" Count="0" />
++      <LineId Id="2856" Count="0" />
++      <LineId Id="2858" Count="0" />
++      <LineId Id="2861" Count="0" />
++      <LineId Id="2864" Count="0" />
++      <LineId Id="2866" Count="0" />
++      <LineId Id="2868" Count="0" />
++      <LineId Id="2816" Count="0" />
++      <LineId Id="2870" Count="1" />
++      <LineId Id="2873" Count="4" />
++      <LineId Id="2879" Count="4" />
++      <LineId Id="2886" Count="0" />
++      <LineId Id="2888" Count="0" />
++      <LineId Id="2891" Count="0" />
++      <LineId Id="2894" Count="0" />
++      <LineId Id="4555" Count="1" />
++      <LineId Id="4554" Count="0" />
++      <LineId Id="4879" Count="0" />
++      <LineId Id="2905" Count="0" />
++      <LineId Id="2908" Count="0" />
++      <LineId Id="2910" Count="0" />
++      <LineId Id="3808" Count="0" />
++      <LineId Id="3810" Count="1" />
++      <LineId Id="3809" Count="0" />
++      <LineId Id="3812" Count="0" />
++      <LineId Id="3817" Count="1" />
++      <LineId Id="3813" Count="0" />
++      <LineId Id="3819" Count="0" />
++      <LineId Id="2912" Count="0" />
++      <LineId Id="2872" Count="0" />
++      <LineId Id="2914" Count="1" />
++      <LineId Id="2917" Count="4" />
++      <LineId Id="2923" Count="0" />
++      <LineId Id="4285" Count="1" />
++      <LineId Id="4619" Count="0" />
++      <LineId Id="2927" Count="0" />
++      <LineId Id="2929" Count="0" />
++      <LineId Id="2932" Count="0" />
++      <LineId Id="2934" Count="0" />
++      <LineId Id="2936" Count="0" />
++      <LineId Id="2939" Count="0" />
++      <LineId Id="2942" Count="0" />
++      <LineId Id="2944" Count="0" />
++      <LineId Id="2946" Count="0" />
++      <LineId Id="2916" Count="0" />
++      <LineId Id="4007" Count="7" />
++      <LineId Id="4016" Count="6" />
++      <LineId Id="4027" Count="0" />
++      <LineId Id="4031" Count="5" />
++      <LineId Id="4038" Count="0" />
++      <LineId Id="4040" Count="6" />
++      <LineId Id="4048" Count="0" />
++      <LineId Id="4050" Count="0" />
++      <LineId Id="4053" Count="6" />
++      <LineId Id="4061" Count="0" />
++      <LineId Id="4066" Count="0" />
++      <LineId Id="4194" Count="0" />
++      <LineId Id="4073" Count="0" />
++      <LineId Id="4076" Count="0" />
++      <LineId Id="2948" Count="0" />
++      <LineId Id="4079" Count="0" />
++      <LineId Id="4078" Count="0" />
++      <LineId Id="2950" Count="4" />
++      <LineId Id="2956" Count="0" />
++      <LineId Id="3713" Count="1" />
++      <LineId Id="2959" Count="1" />
++      <LineId Id="2962" Count="1" />
++      <LineId Id="2965" Count="4" />
++      <LineId Id="2972" Count="0" />
++      <LineId Id="2974" Count="0" />
++      <LineId Id="2976" Count="0" />
++      <LineId Id="2979" Count="0" />
++      <LineId Id="2982" Count="0" />
++      <LineId Id="2984" Count="0" />
++      <LineId Id="2987" Count="0" />
++      <LineId Id="4815" Count="2" />
++      <LineId Id="2990" Count="0" />
++      <LineId Id="2992" Count="0" />
++      <LineId Id="2964" Count="0" />
++      <LineId Id="2995" Count="1" />
++      <LineId Id="2998" Count="4" />
++      <LineId Id="3004" Count="0" />
++      <LineId Id="3236" Count="0" />
++      <LineId Id="3007" Count="0" />
++      <LineId Id="3009" Count="0" />
++      <LineId Id="3015" Count="0" />
++      <LineId Id="3017" Count="0" />
++      <LineId Id="3925" Count="0" />
++      <LineId Id="3020" Count="0" />
++      <LineId Id="3414" Count="1" />
++      <LineId Id="3023" Count="0" />
++      <LineId Id="3413" Count="0" />
++      <LineId Id="3417" Count="1" />
++      <LineId Id="3416" Count="0" />
++      <LineId Id="3025" Count="1" />
++      <LineId Id="3028" Count="3" />
++      <LineId Id="3877" Count="0" />
++      <LineId Id="3033" Count="0" />
++      <LineId Id="3035" Count="1" />
++      <LineId Id="3038" Count="0" />
++      <LineId Id="3928" Count="0" />
++      <LineId Id="3040" Count="0" />
++      <LineId Id="3027" Count="0" />
++      <LineId Id="3042" Count="0" />
++      <LineId Id="3044" Count="5" />
++      <LineId Id="3051" Count="1" />
++      <LineId Id="3054" Count="0" />
++      <LineId Id="3043" Count="0" />
++      <LineId Id="3060" Count="1" />
++      <LineId Id="3063" Count="3" />
++      <LineId Id="3068" Count="0" />
++      <LineId Id="3237" Count="0" />
++      <LineId Id="3070" Count="0" />
++      <LineId Id="3073" Count="0" />
++      <LineId Id="3075" Count="0" />
++      <LineId Id="3077" Count="0" />
++      <LineId Id="3080" Count="0" />
++      <LineId Id="3082" Count="0" />
++      <LineId Id="3085" Count="0" />
++      <LineId Id="3088" Count="0" />
++      <LineId Id="3090" Count="0" />
++      <LineId Id="3094" Count="0" />
++      <LineId Id="3096" Count="0" />
++      <LineId Id="3100" Count="0" />
++      <LineId Id="3102" Count="0" />
++      <LineId Id="3106" Count="0" />
++      <LineId Id="3108" Count="0" />
++      <LineId Id="3112" Count="0" />
++      <LineId Id="3114" Count="0" />
++      <LineId Id="3117" Count="1" />
++      <LineId Id="3120" Count="0" />
++      <LineId Id="3122" Count="0" />
++      <LineId Id="3124" Count="0" />
++      <LineId Id="3126" Count="0" />
++      <LineId Id="4934" Count="0" />
++      <LineId Id="4928" Count="1" />
++      <LineId Id="4932" Count="0" />
++      <LineId Id="3128" Count="0" />
++      <LineId Id="3062" Count="0" />
++      <LineId Id="3130" Count="6" />
++      <LineId Id="3138" Count="1" />
++      <LineId Id="3141" Count="1" />
++      <LineId Id="3144" Count="0" />
++      <LineId Id="3148" Count="0" />
++      <LineId Id="3150" Count="2" />
++      <LineId Id="3154" Count="1" />
++      <LineId Id="3157" Count="0" />
++      <LineId Id="3161" Count="0" />
++      <LineId Id="3376" Count="0" />
++      <LineId Id="3375" Count="0" />
++      <LineId Id="3162" Count="0" />
++      <LineId Id="3164" Count="1" />
++      <LineId Id="3167" Count="1" />
++      <LineId Id="3170" Count="1" />
++      <LineId Id="3173" Count="1" />
++      <LineId Id="3176" Count="2" />
++      <LineId Id="3180" Count="1" />
++      <LineId Id="3186" Count="1" />
++      <LineId Id="3190" Count="1" />
++      <LineId Id="3193" Count="1" />
++      <LineId Id="3196" Count="1" />
++      <LineId Id="3199" Count="1" />
++      <LineId Id="3202" Count="5" />
++      <LineId Id="3315" Count="0" />
++      <LineId Id="3674" Count="0" />
++      <LineId Id="3672" Count="0" />
++      <LineId Id="4287" Count="1" />
++      <LineId Id="4290" Count="0" />
++      <LineId Id="4293" Count="0" />
++      <LineId Id="4292" Count="0" />
++      <LineId Id="4289" Count="0" />
++      <LineId Id="3208" Count="1" />
++      <LineId Id="3211" Count="1" />
++      <LineId Id="3217" Count="1" />
++      <LineId Id="3220" Count="0" />
++      <LineId Id="3224" Count="1" />
++      <LineId Id="3230" Count="1" />
++      <LineId Id="3233" Count="0" />
++      <LineId Id="3607" Count="0" />
++      <LineId Id="3599" Count="0" />
++      <LineId Id="3601" Count="1" />
++      <LineId Id="3258" Count="0" />
++      <LineId Id="3609" Count="0" />
++      <LineId Id="3608" Count="0" />
++      <LineId Id="3261" Count="0" />
++      <LineId Id="3263" Count="1" />
++      <LineId Id="3319" Count="0" />
++      <LineId Id="3267" Count="1" />
++      <LineId Id="3448" Count="0" />
++      <LineId Id="3451" Count="0" />
++      <LineId Id="3449" Count="1" />
++      <LineId Id="3447" Count="0" />
++      <LineId Id="3270" Count="0" />
++      <LineId Id="3453" Count="0" />
++      <LineId Id="3273" Count="0" />
++      <LineId Id="3455" Count="1" />
++      <LineId Id="3274" Count="0" />
++      <LineId Id="3276" Count="0" />
++      <LineId Id="4607" Count="0" />
++      <LineId Id="3277" Count="2" />
++      <LineId Id="3257" Count="0" />
++      <LineId Id="932" Count="79" />
++      <LineId Id="2" Count="0" />
++      <LineId Id="1013" Count="17" />
++      <LineId Id="5274" Count="5" />
++      <LineId Id="1036" Count="10" />
++      <LineId Id="5089" Count="0" />
++      <LineId Id="1065" Count="29" />
++      <LineId Id="5189" Count="0" />
++    </LineIds>
++  </POU>
+ </TcPlcObject>

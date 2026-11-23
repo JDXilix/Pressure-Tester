@@ -1,0 +1,711 @@
+--- PressureTester - 100ft Single v100/test/FrontSide/GVLs/GVL.TcGVL
++++ PressureTester - 100ft Single v100/test/FrontSide/GVLs/GVL.TcGVL
+@@ -1,354 +1,355 @@
+-<?xml version="1.0" encoding="utf-8"?>
+-<TcPlcObject Version="1.1.0.1" ProductVersion="3.1.4024.12">
+-  <GVL Name="GVL" Id="{082ff1ef-1e21-48ec-b1b3-b86132ec9a09}">
+-    <Declaration><![CDATA[// This is Side A
+-//
+-// Safety is mapped in Safety Project
+-
+-VAR_GLOBAL
+-	// ============================================================
+-    // FUNCTION BLOCK MAPPING
+-    // ============================================================
+-	{attribute 'TcLinkTo' := '
+-	.OpenSwitch := TIID^EtherCAT Master^MCP^Term 4 (EL1008)^Channel 2^Input;
+-	.CloseSwitch := TIID^EtherCAT Master^MCP^Term 4 (EL1008)^Channel 1^Input;
+-	.DownSwitchA := TIID^EtherCAT Master^MCP^Term 5 (EL1008)^Channel 8^Input;
+-	.UpSwitchA := TIID^EtherCAT Master^MCP^Term 5 (EL1008)^Channel 7^Input;
+-	.DownSwitchB := TIID^EtherCAT Master^MCP^Term 6 (EL1008)^Channel 2^Input;
+-	.UpSwitchB := TIID^EtherCAT Master^MCP^Term 6 (EL1008)^Channel 1^Input;
+-	.MoveUpA := TIID^EtherCAT Master^JB1^Module 2 (DIO)^DIO Outputs^Output 0;
+-	.MoveUpB := TIID^EtherCAT Master^JB1^Module 2 (DIO)^DIO Outputs^Output 1;
+-	.MoveDownA := TIID^EtherCAT Master^JB1^Module 2 (DIO)^DIO Outputs^Output 2;
+-	.MoveDownB := TIID^EtherCAT Master^JB1^Module 2 (DIO)^DIO Outputs^Output 3;
+-	'}
+-	Door1						: DOOR_ACTUATOR;
+-
+-	{attribute 'TcLinkTo' := '
+-	.OpenSwitch := TIID^EtherCAT Master^MCP^Term 4 (EL1008)^Channel 4^Input;
+-	.CloseSwitch := TIID^EtherCAT Master^MCP^Term 4 (EL1008)^Channel 3^Input;
+-	.DownSwitchA := TIID^EtherCAT Master^MCP^Term 6 (EL1008)^Channel 4^Input;
+-	.UpSwitchA := TIID^EtherCAT Master^MCP^Term 6 (EL1008)^Channel 3^Input;
+-	.DownSwitchB := TIID^EtherCAT Master^MCP^Term 6 (EL1008)^Channel 6^Input;
+-	.UpSwitchB := TIID^EtherCAT Master^MCP^Term 6 (EL1008)^Channel 5^Input;
+-	.MoveUpA := TIID^EtherCAT Master^JB2^Module 2 (DIO)^DIO Outputs^Output 0;
+-	.MoveUpB := TIID^EtherCAT Master^JB2^Module 2 (DIO)^DIO Outputs^Output 1;
+-	.MoveDownA := TIID^EtherCAT Master^JB2^Module 2 (DIO)^DIO Outputs^Output 2;
+-	.MoveDownB := TIID^EtherCAT Master^JB2^Module 2 (DIO)^DIO Outputs^Output 3;
+-	'}	
+-	Door2						: DOOR_ACTUATOR;
+-
+-				
+-	{attribute 'TcLinkTo' := '
+-	.Switch := TIID^EtherCAT Master^MCP^Term 5 (EL1008)^Channel 3^Input;
+-	.Valve := TIID^EtherCAT Master^JB1^Term 15 (EL2008)^Channel 1^Output'}
+-	BoosterPumpA				: AIR_PUMP_CONTROL;
+-	
+-	{attribute 'TcLinkTo' := '
+-	.Switch := TIID^EtherCAT Master^MCP^Term 5 (EL1008)^Channel 4^Input;
+-	.Valve := TIID^EtherCAT Master^JB1^Term 15 (EL2008)^Channel 2^Output'}
+-	BildgePumpA					: AIR_PUMP_CONTROL;
+-	
+-	{attribute 'TcLinkTo' := '
+-	.Switch := TIID^EtherCAT Master^MCP^Term 5 (EL1008)^Channel 5^Input;
+-	.Valve := TIID^EtherCAT Master^VPPM1^Module 3 (MPA2G VMPA2-FB-EMG-4 [4DO])^Outputs^Output 2; 
+-	.Valve2 := TIID^EtherCAT Master^VPPM1^Module 3 (MPA2G VMPA2-FB-EMG-4 [4DO])^Outputs^Output 3'}
+-	BlowDownA					: AIR_PUMP_CONTROL;
+-	
+-	fbBeacon					: FB_Beacon;
+-	// ============================================================
+-    // FESTO MAPPING
+-    // ============================================================
+-	
+-	{attribute 'TcLinkTo' := 'TIID^EtherCAT Master^VPPM1^Module 2 (MPA2G VMPA2-FB-EMG-4 [4DO])^Outputs^Output 1'}
+-	O_PortABlockValve AT %Q*: BOOL;
+-	{attribute 'TcLinkTo' := 'TIID^EtherCAT Master^VPPM1^Module 2 (MPA2G VMPA2-FB-EMG-4 [4DO])^Outputs^Output 0'}
+-	O_PortBBlockValve AT %Q*: BOOL;
+-	{attribute 'TcLinkTo' := 'TIID^EtherCAT Master^VPPM1^Module 2 (MPA2G VMPA2-FB-EMG-4 [4DO])^Outputs^Output 3'}
+-	O_DumpValveA AT %Q*: BOOL;
+-	{attribute 'TcLinkTo' := 'TIID^EtherCAT Master^VPPM1^Module 2 (MPA2G VMPA2-FB-EMG-4 [4DO])^Outputs^Output 2'}
+-	O_DumpValveB AT %Q*: BOOL;
+-	{attribute 'TcLinkTo' := 'TIID^EtherCAT Master^VPPM1^Module 3 (MPA2G VMPA2-FB-EMG-4 [4DO])^Outputs^Output 1'}
+-	O_BleedValveA AT %Q*: BOOL;
+-	{attribute 'TcLinkTo' := 'TIID^EtherCAT Master^VPPM1^Module 3 (MPA2G VMPA2-FB-EMG-4 [4DO])^Outputs^Output 0'}
+-	O_BleedValveB AT %Q*: BOOL;
+-//	{attribute 'TcLinkTo' := 'TIID^EtherCAT Master^VPPM1^Module 3 (MPA2G VMPA2-FB-EMG-4 [4DO])^Outputs^Output 3'}
+-//	O_PurgeValveA AT %Q*: BOOL;
+-//	{attribute 'TcLinkTo' := 'TIID^EtherCAT Master^VPPM1^Module 3 (MPA2G VMPA2-FB-EMG-4 [4DO])^Outputs^Output 2'}
+-//	O_PurgeValveB AT %Q*: BOOL;
+-	
+-	
+-	{attribute 'TcLinkTo' := 'TIID^EtherCAT Master^VPPM1^Module 4 (VPPM Display 10 bar [1AI/1AO])^Outputs^Output 0'}
+-	FestoLowPressure AT %Q*: INT;
+-	{attribute 'TcLinkTo' := 'TIID^EtherCAT Master^VPPM1^Module 5 (VPPM Display 10 bar [1AI/1AO])^Outputs^Output 0'}
+-	FestoHighPressure AT %Q*: INT;
+-	
+-	
+-	VPPMLowActualPSI 		: LREAL;
+-	{attribute 'TcLinkTo' := 'TIID^EtherCAT Master^VPPM1^Module 4 (VPPM Display 10 bar [1AI/1AO])^Inputs^Input 0'}
+-	VPPMLowActualRaw AT %I*: INT;
+-	
+-	VPPMHighActualPSI 		: LREAL;
+-	{attribute 'TcLinkTo' := 'TIID^EtherCAT Master^VPPM1^Module 5 (VPPM Display 10 bar [1AI/1AO])^Inputs^Input 0'}
+-	VPPMHighActualRaw AT %I*: INT;
+-
+-	
+-	// ============================================================
+-    // DIGITAL INPUTS
+-    // ============================================================
+-	{attribute 'TcLinkTo' := 'TIID^EtherCAT Master^MCP^Term 8 (EL1008)^Channel 5^Input'}
+-	I_ResetA AT %I*: BOOL;
+-	{attribute 'TcLinkTo' := 'TIID^EtherCAT Master^MCP^Term 8 (EL1008)^Channel 6^Input'}
+-	I_ResetB AT %I*: BOOL;
+-	{attribute 'TcLinkTo' := 'TIID^EtherCAT Master^MCP^Term 8 (EL1008)^Channel 7^Input'}
+-	I_AirDumpStatus1 AT %I*: BOOL;
+-	{attribute 'TcLinkTo' := 'TIID^EtherCAT Master^MCP^Term 8 (EL1008)^Channel 8^Input'}
+-	I_AirDumpStatus2 AT %I*: BOOL;
+-	{attribute 'TcLinkTo' := 'TIID^EtherCAT Master^JB1^Module 2 (DIO)^DIO Inputs^Input 0'}
+-	I_TankLevel1A AT %I*: BOOL;
+-	{attribute 'TcLinkTo' := 'TIID^EtherCAT Master^JB1^Module 2 (DIO)^DIO Inputs^Input 1'}
+-	I_TankLevel1B AT %I*: BOOL;
+-//	{attribute 'TcLinkTo' := 'TIID^EtherCAT Master^JB2^Module 2 (DIO)^DIO Inputs^Input 0'}
+-//	I_TankLevel2A AT %I*: BOOL;
+-//	{attribute 'TcLinkTo' := 'TIID^EtherCAT Master^JB2^Module 2 (DIO)^DIO Inputs^Input 1'}
+-//	I_TankLevel21B AT %I*: BOOL;
+-	
+-	
+-	// ============================================================
+-    // DIGITAL OUTPUTS
+-    // ============================================================
+-//	{attribute 'TcLinkTo' := 'TIID^EtherCAT Master^MCP^Term 11 (EL2008)^Channel 1^Output'}
+-//	O_ResetLightA AT %Q*: BOOL;
+-	{attribute 'TcLinkTo' := 'TIID^EtherCAT Master^MCP^Term 11 (EL2008)^Channel 2^Output'}
+-	O_EstopLightA AT %Q*: BOOL;
+-//	{attribute 'TcLinkTo' := 'TIID^EtherCAT Master^MCP^Term 11 (EL2008)^Channel 3^Output'}
+-	O_ResetLightB AT %Q*: BOOL;
+-	{attribute 'TcLinkTo' := 'TIID^EtherCAT Master^MCP^Term 11 (EL2008)^Channel 4^Output'}
+-	O_BeaconAlarm AT %Q*: BOOL;
+-	{attribute 'TcLinkTo' := 'TIID^EtherCAT Master^MCP^Term 11 (EL2008)^Channel 5^Output'}
+-	O_BeaconRed AT %Q*: BOOL;
+-	{attribute 'TcLinkTo' := 'TIID^EtherCAT Master^MCP^Term 11 (EL2008)^Channel 6^Output'}
+-	O_BeaconYellow AT %Q*: BOOL;
+-	{attribute 'TcLinkTo' := 'TIID^EtherCAT Master^MCP^Term 11 (EL2008)^Channel 7^Output'}
+-	O_BeaconBlue AT %Q*: BOOL;
+-	{attribute 'TcLinkTo' := 'TIID^EtherCAT Master^JB1^Term 15 (EL2008)^Channel 3^Output'}
+-	O_ChamberLightsA AT %Q*: BOOL;
+-	{attribute 'TcLinkTo' := 'TIID^EtherCAT Master^JB2^Term 21 (EL2008)^Channel 4^Output'}
+-	O_EstopLightB AT %Q*: BOOL;
+-	{attribute 'TcLinkTo' := 'TIID^EtherCAT Master^JB2^Term 21 (EL2008)^Channel 3^Output'}
+-	O_ChamberLightsB AT %Q*: BOOL;
+-	{attribute 'TcLinkTo' := 'TIID^EtherCAT Master^JB2^Term 21 (EL2008)^Channel 5^Output'}
+-	O_EstopLightC AT %Q*: BOOL;
+-	{attribute 'TcLinkTo' := 'TIID^EtherCAT Master^MCP^Term 11 (EL2008)^Channel 1^Output'}
+-	O_ResetLightA AT %Q*: BOOL;
+-	
+-	
+-	// ============================================================
+-    // ANALOG INPUTS
+-    // ============================================================
+-	{attribute 'TcLinkTo' := 'TIID^EtherCAT Master^JB1^Term 18 (EL3124)^AI Standard Channel 1^Value'}
+-	AI_PortAPressure1 AT %I*: INT;
+-	{attribute 'TcLinkTo' := 'TIID^EtherCAT Master^JB1^Term 18 (EL3124)^AI Standard Channel 2^Value'}
+-	AI_HeaderPressure1 AT %I*: INT;
+-	{attribute 'TcLinkTo' := 'TIID^EtherCAT Master^JB1^Term 18 (EL3124)^AI Standard Channel 3^Value'}
+-	AI_PortBPressure1 AT %I*: INT;
+-//	{attribute 'TcLinkTo' := 'TIID^EtherCAT Master^JB2^Term 24 (EL3124)^AI Standard Channel 1^Value'}
+-//	AI_PortAPressure2 AT %I*: INT;
+-//	{attribute 'TcLinkTo' := 'TIID^EtherCAT Master^JB2^Term 18 (EL3124)^AI Standard Channel 2^Value'}
+-//	AI_HeaderPressure2 AT %I*: INT;
+-//	{attribute 'TcLinkTo' := 'TIID^EtherCAT Master^JB2^Term 18 (EL3124)^AI Standard Channel 3^Value'}
+-//	AI_PortBPressure2 AT %I*: INT;
+-
+-
+-	
+-	
+-	// ============================================================
+-    // SAFETY VARIABLES
+-    // ============================================================
+-	
+-	Safety_ResetA	AT %Q*: BOOL;
+-	Safety_ErrAck 	AT %Q*: BOOL;
+-	Safety_Run 		AT %Q*: BOOL;
+-	
+-	
+-	Safety_ComError AT %I*: BOOL;
+-	Safety_FBError 	AT %I*: BOOL;
+-	Safety_OtherErr	AT %I*: BOOL;
+-
+-	Safety_I_EStopIsReset 	AT %I*: BOOL;
+-	Safety_I_MachineIsReset	AT %I*: BOOL;
+-	
+-	Safety_I_EStopIsReset_B 	AT %I*: BOOL;
+-	Safety_I_MachineIsReset_B	AT %I*: BOOL;
+-	
+-	Safety_HPP1AirStatus	AT %I*: BOOL;
+-
+-	I_EStop1A 	AT %I* : BOOL;
+-	I_EStop1B 	AT %I*: BOOL;
+-	
+-	I_EStop2A 	AT %I* : BOOL;
+-	I_EStop2B 	AT %I*: BOOL;
+-	
+-	bTsLowPressureA AT %Q* : BOOL;	
+-	bTsSeperatorState	AT %I* : BOOL;
+-	bOkForHighPressureA	AT %I* : BOOL;
+-	//bLightCurtainState AT %I* : BOOL;
+-	bAirCabDoor1State AT %I* : BOOL;
+-	bSafetyScannerState AT %I* : BOOL;
+-	bAbortSequence		: BOOL;
+-
+-
+-	I_RedBeaconSideB	AT %I*: BOOL;
+-	I_PressureOver1K		: BOOL;
+-	I_PumpOut			AT %I*: BOOL;
+-
+-	O_Tank1SensorTeach	AT %Q*: BOOL;
+-	
+-	
+-
+-	
+-
+-	DesiredPressure			: LREAL;	
+-
+-	HeaderCurrentPSI		: LREAL;
+-	PortACurrentPSI			: LREAL;
+-	PortBCurrentPSI 		: LREAL;
+-	
+-	SystemPressure			: LREAL;
+-	PressureSourceValid		: BOOL;
+-	PressureDifference		: LREAL;
+-	PressureMismatch		: BOOL;
+-	
+-			
+-	HMI_HeaderCurrentPressureDrop		: REAL;	// ******HMI INPUT
+-	HMI_PortACurrentPressureDrop 		: REAL;	// ******HMI INPUT
+-	HMI_PortBCurrentPressureDrop 		: REAL;	// ******HMI INPUT
+-	HMI_HeaderCurrentPressureDropHigh	: REAL;	// ******HMI INPUT
+-	HMI_PortACurrentPressureDropHigh	: REAL;	// ******HMI INPUT
+-	HMI_PortBCurrentPressureDropHigh	: REAL;	// ******HMI INPUT
+-	HMI_HeaderCurrentPressureDropLow	: REAL;	// ******HMI INPUT
+-	HMI_PortACurrentPressureDropLow		: REAL;	// ******HMI INPUT
+-	HMI_PortBCurrentPressureDropLow		: REAL;	// ******HMI INPUT
+-	
+-	HMI_LightSwitch						: BOOL;	// ******HMI INPUT******************
+-	HMI_EStopOK							: BOOL;	// ******HMI INPUT******************
+-	HMI_DoorsOK							: BOOL; // ******HMI INPUT******************
+-	HMI_Under1K							: BOOL;	// ******HMI INPUT******************
+-	HMI_Under1K_B				AT %I*	: BOOL;	// ******HMI INPUT* and sends status to SideA
+-	HMI_EStopReset						: BOOL; // ******HMI INPUT******************
+-	HMI_TimeRemainingInTest				: DINT;	// ******HMI INPUT******************
+-	HMI_ExecutedTestTime				: DINT;
+-	HMI_Message							: STRING; // ******HMI INPUT******************
+-	HMI_StateName						: STRING; // ******HMI INPUT******************
+-	HMI_LowTestElapsedTime				: DINT;
+-	HMI_HighTestElapsedTime				: DINT;
+-	
+-	HMI_DumpValveAStatus 				: BOOL; // ******HMI INPUT******************
+-	HMI_DumpValveBStatus 				: BOOL;	// ******HMI INPUT******************
+-	HMI_BleedValveAStatus 				: BOOL;	// ******HMI INPUT******************
+-	HMI_BleedValveBStatus 				: BOOL;	// ******HMI INPUT******************
+-	HMI_PortABlockValveStatus 			: BOOL;	// ******HMI INPUT******************
+-	HMI_PortBBlockValveStatus 			: BOOL;	// ******HMI INPUT******************
+-	HMI_PumpOnStatus 					: BOOL;	// ******HMI INPUT******************
+-	
+-//	HMI_TestComplete 					: BOOL;
+-//	HMI_TestCycleComplete 				: BOOL;
+-	
+-	HMI_InCycle					 		: BOOL;	// ******HMI INPUT******************
+-	HMI_TestingCompleted		 		: BOOL;	// ******HMI INPUT******************
+-	HMI_CycleFinished					: BOOL;	// ******HMI INPUT******************
+-	HMI_CycleCount						: INT;
+-	
+-	HMI_StartTest 						: BOOL; // HMI OUTPUT************************
+-	HMI_StopTest 						: BOOL; // HMI OUTPUT************************
+-	HMI_SaveTest 						: BOOL; // HMI OUTPUT************************
+-	HMI_ReStartTestTime 				: BOOL; // HMI OUTPUT************************
+-	HMI_ReStartTest 					: BOOL;	// HMI OUTPUT************************	
+-	HMI_Continue	 					: BOOL;	// HMI OUTPUT************************
+-	HMI_FinishTest		 				: BOOL;	// HMI OUTPUT************************
+-	HMI_DepressurizeSystem 				: BOOL; // HMI OUTPUT************************
+-	
+-	HMI_GatheringData	 				: BOOL; // HMI OUTPUT************************
+-	
+-	HMI_ToggleDumpValveA 				: BOOL;	// HMI OUTPUT************************
+-	HMI_ToggleDumpValveB 				: BOOL;	// HMI OUTPUT************************
+-	HMI_ToggleBleedValveA 				: BOOL;	// HMI OUTPUT************************
+-	HMI_ToggleBleedValveB 				: BOOL;	// HMI OUTPUT************************
+-	HMI_TogglePortABlockValve 			: BOOL;	// HMI OUTPUT************************
+-	HMI_TogglePortBBlockValve 			: BOOL;	// HMI OUTPUT************************
+-	HMI_TogglePump 						: BOOL; // HMI OUTPUT************************
+-	
+-	HMI_HeaderPressureReading 			: REAL;	// ******HMI INPUT******************
+-	HMI_PortAPressureReading 			: REAL;	// ******HMI INPUT******************
+-	HMI_PortBPressureReading 			: REAL;	// ******HMI INPUT******************
+-		
+-	HMI_HeaderStartPressure				: REAL;	// ******HMI INPUT******************
+-	HMI_PortAStartPressure 				: REAL;	// ******HMI INPUT******************
+-	HMI_PortBStartPressure 				: REAL; // ******HMI INPUT******************
+-	HMI_HeaderStartPressureHigh			: REAL;	// ******HMI INPUT******************
+-	HMI_PortAStartPressureHigh			: REAL;	// ******HMI INPUT******************
+-	HMI_PortBStartPressureHigh			: REAL; // ******HMI INPUT******************
+-	HMI_HeaderStartPressureLow			: REAL;	// ******HMI INPUT******************
+-	HMI_PortAStartPressureLow			: REAL;	// ******HMI INPUT******************
+-	HMI_PortBStartPressureLow			: REAL; // ******HMI INPUT******************
+-	
+-	HMI_HeaderEndPressure 				: REAL;	// ******HMI INPUT******************
+-	HMI_PortAEndPressure 				: REAL;	// ******HMI INPUT******************
+-	HMI_PortBEndPressure 				: REAL;	// ******HMI INPUT******************
+-	HMI_HeaderEndPressureHigh			: REAL;	// ******HMI INPUT******************
+-	HMI_PortAEndPressureHigh			: REAL;	// ******HMI INPUT******************
+-	HMI_PortBEndPressureHigh			: REAL;	// ******HMI INPUT******************
+-	HMI_HeaderEndPressureLow			: REAL;	// ******HMI INPUT******************
+-	HMI_PortAEndPressureLow				: REAL;	// ******HMI INPUT******************
+-	HMI_PortBEndPressureLow				: REAL;	// ******HMI INPUT******************
+-	
+-	HMI_TestPressure					: DINT; // HMI OUTPUT************************
+-	HMI_TestDuration					: DINT; // HMI OUTPUT************************
+-	
+-	HMI_ResetTransducers				: BOOL;
+-	
+-	HMI_ShearPressure					: REAL;
+-	HMI_ShearTime						: TIME;
+-	
+-	HMI_LoadRecipe						: BOOL;
+-	HMI_SaveRecipe						: BOOL;
+-	HMI_SelectedRecipe 					: INT := 1;
+-    HMI_EditRecipe 						: BOOL;
+-	HMI_RecipeType						: STRING[250];
+-
+-	ActiveRecipe 						: ST_Recipe;
+-	LoadedRecipe 						: ST_Recipe;
+-    SelectedRecipe 						: INT := 1;
+-    RecipeEdit 							: ST_Recipe;
+-	ActiveWorkingPort 					: E_PortSelect;
+-	PortA_Active 						: BOOL;
+-	PortB_Active 						: BOOL;
+-END_VAR
+-
+-VAR_GLOBAL CONSTANT;
+-	
+-	TRANSDUCER_FULL_SCALE_VALUE		: LREAL := 12500.0;
+-	PumpSwapSetpoint				: LREAL := 1500.0;
+-	
+-	LOW_PUMP_RATIO					: LREAL := 28;
+-	HIGH_PUMP_RATIO					: LREAL := 226.0;
+-	MAX_AIR_PRESSURE				: LREAL := 100;
+-	PSI_To_Bar_Constant				: LREAL := 	1;	//BAR Constant 0.0689475729;
+-	MAX_LOW_PRESSURE_PSI			: LREAL := MAX_AIR_PRESSURE * LOW_PUMP_RATIO * 0.95;
+-END_VAR
+-
+-VAR_GLOBAL RETAIN PERSISTENT
+-	HEADER_TRANSDUCER_OFFSET 	: LREAL := 0.0;
+-	PORTA_TRANSDUCER_OFFSET		: LREAL := 0.0;
+-	PORTB_TRANSDUCER_OFFSET		: LREAL := 0.0;
+-	HMI_MaxHosePSI				: LREAL; //Cust Request ability to enter these 2 values and compare against system pressure - use lowest as MAX system pressure
+-	HMI_MaxCouplingPSI			: LREAL;
+-	MAX_HIGH_PRESSURE_PSI		: LREAL := 12500;
+-END_VAR
+-
+-VAR_GLOBAL PERSISTENT
+-	Recipes : ARRAY[1..50] OF ST_Recipe;
+-	PT : ARRAY[100..110] OF ST_AnalogInputs;
+-END_VAR
+- ]]></Declaration>
+-  </GVL>
++<?xml version="1.0" encoding="utf-8"?>
++<TcPlcObject Version="1.1.0.1" ProductVersion="3.1.4024.12">
++  <GVL Name="GVL" Id="{082ff1ef-1e21-48ec-b1b3-b86132ec9a09}">
++    <Declaration><![CDATA[// This is Side A
++//
++// Safety is mapped in Safety Project
++
++VAR_GLOBAL
++	// ============================================================
++    // FUNCTION BLOCK MAPPING
++    // ============================================================
++	{attribute 'TcLinkTo' := '
++	.OpenSwitch := TIID^EtherCAT Master^MCP^Term 4 (EL1008)^Channel 2^Input;
++	.CloseSwitch := TIID^EtherCAT Master^MCP^Term 4 (EL1008)^Channel 1^Input;
++	.DownSwitchA := TIID^EtherCAT Master^MCP^Term 5 (EL1008)^Channel 8^Input;
++	.UpSwitchA := TIID^EtherCAT Master^MCP^Term 5 (EL1008)^Channel 7^Input;
++	.DownSwitchB := TIID^EtherCAT Master^MCP^Term 6 (EL1008)^Channel 2^Input;
++	.UpSwitchB := TIID^EtherCAT Master^MCP^Term 6 (EL1008)^Channel 1^Input;
++	.MoveUpA := TIID^EtherCAT Master^JB1^Module 2 (DIO)^DIO Outputs^Output 0;
++	.MoveUpB := TIID^EtherCAT Master^JB1^Module 2 (DIO)^DIO Outputs^Output 1;
++	.MoveDownA := TIID^EtherCAT Master^JB1^Module 2 (DIO)^DIO Outputs^Output 2;
++	.MoveDownB := TIID^EtherCAT Master^JB1^Module 2 (DIO)^DIO Outputs^Output 3;
++	'}
++	Door1						: DOOR_ACTUATOR;
++
++	{attribute 'TcLinkTo' := '
++	.OpenSwitch := TIID^EtherCAT Master^MCP^Term 4 (EL1008)^Channel 4^Input;
++	.CloseSwitch := TIID^EtherCAT Master^MCP^Term 4 (EL1008)^Channel 3^Input;
++	.DownSwitchA := TIID^EtherCAT Master^MCP^Term 6 (EL1008)^Channel 4^Input;
++	.UpSwitchA := TIID^EtherCAT Master^MCP^Term 6 (EL1008)^Channel 3^Input;
++	.DownSwitchB := TIID^EtherCAT Master^MCP^Term 6 (EL1008)^Channel 6^Input;
++	.UpSwitchB := TIID^EtherCAT Master^MCP^Term 6 (EL1008)^Channel 5^Input;
++	.MoveUpA := TIID^EtherCAT Master^JB2^Module 2 (DIO)^DIO Outputs^Output 0;
++	.MoveUpB := TIID^EtherCAT Master^JB2^Module 2 (DIO)^DIO Outputs^Output 1;
++	.MoveDownA := TIID^EtherCAT Master^JB2^Module 2 (DIO)^DIO Outputs^Output 2;
++	.MoveDownB := TIID^EtherCAT Master^JB2^Module 2 (DIO)^DIO Outputs^Output 3;
++	'}	
++	Door2						: DOOR_ACTUATOR;
++
++				
++	{attribute 'TcLinkTo' := '
++	.Switch := TIID^EtherCAT Master^MCP^Term 5 (EL1008)^Channel 3^Input;
++	.Valve := TIID^EtherCAT Master^JB1^Term 15 (EL2008)^Channel 1^Output'}
++	BoosterPumpA				: AIR_PUMP_CONTROL;
++	
++	{attribute 'TcLinkTo' := '
++	.Switch := TIID^EtherCAT Master^MCP^Term 5 (EL1008)^Channel 4^Input;
++	.Valve := TIID^EtherCAT Master^JB1^Term 15 (EL2008)^Channel 2^Output'}
++	BildgePumpA					: AIR_PUMP_CONTROL;
++	
++	{attribute 'TcLinkTo' := '
++	.Switch := TIID^EtherCAT Master^MCP^Term 5 (EL1008)^Channel 5^Input;
++	.Valve := TIID^EtherCAT Master^VPPM1^Module 3 (MPA2G VMPA2-FB-EMG-4 [4DO])^Outputs^Output 2; 
++	.Valve2 := TIID^EtherCAT Master^VPPM1^Module 3 (MPA2G VMPA2-FB-EMG-4 [4DO])^Outputs^Output 3'}
++	BlowDownA					: AIR_PUMP_CONTROL;
++	
++	fbBeacon					: FB_Beacon;
++	// ============================================================
++    // FESTO MAPPING
++    // ============================================================
++	
++	{attribute 'TcLinkTo' := 'TIID^EtherCAT Master^VPPM1^Module 2 (MPA2G VMPA2-FB-EMG-4 [4DO])^Outputs^Output 1'}
++	O_PortABlockValve AT %Q*: BOOL;
++	{attribute 'TcLinkTo' := 'TIID^EtherCAT Master^VPPM1^Module 2 (MPA2G VMPA2-FB-EMG-4 [4DO])^Outputs^Output 0'}
++	O_PortBBlockValve AT %Q*: BOOL;
++	{attribute 'TcLinkTo' := 'TIID^EtherCAT Master^VPPM1^Module 2 (MPA2G VMPA2-FB-EMG-4 [4DO])^Outputs^Output 3'}
++	O_DumpValveA AT %Q*: BOOL;
++	{attribute 'TcLinkTo' := 'TIID^EtherCAT Master^VPPM1^Module 2 (MPA2G VMPA2-FB-EMG-4 [4DO])^Outputs^Output 2'}
++	O_DumpValveB AT %Q*: BOOL;
++	{attribute 'TcLinkTo' := 'TIID^EtherCAT Master^VPPM1^Module 3 (MPA2G VMPA2-FB-EMG-4 [4DO])^Outputs^Output 1'}
++	O_BleedValveA AT %Q*: BOOL;
++	{attribute 'TcLinkTo' := 'TIID^EtherCAT Master^VPPM1^Module 3 (MPA2G VMPA2-FB-EMG-4 [4DO])^Outputs^Output 0'}
++	O_BleedValveB AT %Q*: BOOL;
++//	{attribute 'TcLinkTo' := 'TIID^EtherCAT Master^VPPM1^Module 3 (MPA2G VMPA2-FB-EMG-4 [4DO])^Outputs^Output 3'}
++//	O_PurgeValveA AT %Q*: BOOL;
++//	{attribute 'TcLinkTo' := 'TIID^EtherCAT Master^VPPM1^Module 3 (MPA2G VMPA2-FB-EMG-4 [4DO])^Outputs^Output 2'}
++//	O_PurgeValveB AT %Q*: BOOL;
++	
++	
++	{attribute 'TcLinkTo' := 'TIID^EtherCAT Master^VPPM1^Module 4 (VPPM Display 10 bar [1AI/1AO])^Outputs^Output 0'}
++	FestoLowPressure AT %Q*: INT;
++	{attribute 'TcLinkTo' := 'TIID^EtherCAT Master^VPPM1^Module 5 (VPPM Display 10 bar [1AI/1AO])^Outputs^Output 0'}
++	FestoHighPressure AT %Q*: INT;
++	
++	
++	VPPMLowActualPSI 		: LREAL;
++	{attribute 'TcLinkTo' := 'TIID^EtherCAT Master^VPPM1^Module 4 (VPPM Display 10 bar [1AI/1AO])^Inputs^Input 0'}
++	VPPMLowActualRaw AT %I*: INT;
++	
++	VPPMHighActualPSI 		: LREAL;
++	{attribute 'TcLinkTo' := 'TIID^EtherCAT Master^VPPM1^Module 5 (VPPM Display 10 bar [1AI/1AO])^Inputs^Input 0'}
++	VPPMHighActualRaw AT %I*: INT;
++
++	
++	// ============================================================
++    // DIGITAL INPUTS
++    // ============================================================
++	{attribute 'TcLinkTo' := 'TIID^EtherCAT Master^MCP^Term 8 (EL1008)^Channel 5^Input'}
++	I_ResetA AT %I*: BOOL;
++	{attribute 'TcLinkTo' := 'TIID^EtherCAT Master^MCP^Term 8 (EL1008)^Channel 6^Input'}
++	I_ResetB AT %I*: BOOL;
++	{attribute 'TcLinkTo' := 'TIID^EtherCAT Master^MCP^Term 8 (EL1008)^Channel 7^Input'}
++	I_AirDumpStatus1 AT %I*: BOOL;
++	{attribute 'TcLinkTo' := 'TIID^EtherCAT Master^MCP^Term 8 (EL1008)^Channel 8^Input'}
++	I_AirDumpStatus2 AT %I*: BOOL;
++	{attribute 'TcLinkTo' := 'TIID^EtherCAT Master^JB1^Module 2 (DIO)^DIO Inputs^Input 0'}
++	I_TankLevel1A AT %I*: BOOL;
++	{attribute 'TcLinkTo' := 'TIID^EtherCAT Master^JB1^Module 2 (DIO)^DIO Inputs^Input 1'}
++	I_TankLevel1B AT %I*: BOOL;
++//	{attribute 'TcLinkTo' := 'TIID^EtherCAT Master^JB2^Module 2 (DIO)^DIO Inputs^Input 0'}
++//	I_TankLevel2A AT %I*: BOOL;
++//	{attribute 'TcLinkTo' := 'TIID^EtherCAT Master^JB2^Module 2 (DIO)^DIO Inputs^Input 1'}
++//	I_TankLevel21B AT %I*: BOOL;
++	
++	
++	// ============================================================
++    // DIGITAL OUTPUTS
++    // ============================================================
++//	{attribute 'TcLinkTo' := 'TIID^EtherCAT Master^MCP^Term 11 (EL2008)^Channel 1^Output'}
++//	O_ResetLightA AT %Q*: BOOL;
++	{attribute 'TcLinkTo' := 'TIID^EtherCAT Master^MCP^Term 11 (EL2008)^Channel 2^Output'}
++	O_EstopLightA AT %Q*: BOOL;
++//	{attribute 'TcLinkTo' := 'TIID^EtherCAT Master^MCP^Term 11 (EL2008)^Channel 3^Output'}
++	O_ResetLightB AT %Q*: BOOL;
++	{attribute 'TcLinkTo' := 'TIID^EtherCAT Master^MCP^Term 11 (EL2008)^Channel 4^Output'}
++	O_BeaconAlarm AT %Q*: BOOL;
++	{attribute 'TcLinkTo' := 'TIID^EtherCAT Master^MCP^Term 11 (EL2008)^Channel 5^Output'}
++	O_BeaconRed AT %Q*: BOOL;
++	{attribute 'TcLinkTo' := 'TIID^EtherCAT Master^MCP^Term 11 (EL2008)^Channel 6^Output'}
++	O_BeaconYellow AT %Q*: BOOL;
++	{attribute 'TcLinkTo' := 'TIID^EtherCAT Master^MCP^Term 11 (EL2008)^Channel 7^Output'}
++	O_BeaconBlue AT %Q*: BOOL;
++	{attribute 'TcLinkTo' := 'TIID^EtherCAT Master^JB1^Term 15 (EL2008)^Channel 3^Output'}
++	O_ChamberLightsA AT %Q*: BOOL;
++	{attribute 'TcLinkTo' := 'TIID^EtherCAT Master^JB2^Term 21 (EL2008)^Channel 4^Output'}
++	O_EstopLightB AT %Q*: BOOL;
++	{attribute 'TcLinkTo' := 'TIID^EtherCAT Master^JB2^Term 21 (EL2008)^Channel 3^Output'}
++	O_ChamberLightsB AT %Q*: BOOL;
++	{attribute 'TcLinkTo' := 'TIID^EtherCAT Master^JB2^Term 21 (EL2008)^Channel 5^Output'}
++	O_EstopLightC AT %Q*: BOOL;
++	{attribute 'TcLinkTo' := 'TIID^EtherCAT Master^MCP^Term 11 (EL2008)^Channel 1^Output'}
++	O_ResetLightA AT %Q*: BOOL;
++	
++	
++	// ============================================================
++    // ANALOG INPUTS
++    // ============================================================
++	{attribute 'TcLinkTo' := 'TIID^EtherCAT Master^JB1^Term 18 (EL3124)^AI Standard Channel 1^Value'}
++	AI_PortAPressure1 AT %I*: INT;
++	{attribute 'TcLinkTo' := 'TIID^EtherCAT Master^JB1^Term 18 (EL3124)^AI Standard Channel 2^Value'}
++	AI_HeaderPressure1 AT %I*: INT;
++	{attribute 'TcLinkTo' := 'TIID^EtherCAT Master^JB1^Term 18 (EL3124)^AI Standard Channel 3^Value'}
++	AI_PortBPressure1 AT %I*: INT;
++//	{attribute 'TcLinkTo' := 'TIID^EtherCAT Master^JB2^Term 24 (EL3124)^AI Standard Channel 1^Value'}
++//	AI_PortAPressure2 AT %I*: INT;
++//	{attribute 'TcLinkTo' := 'TIID^EtherCAT Master^JB2^Term 18 (EL3124)^AI Standard Channel 2^Value'}
++//	AI_HeaderPressure2 AT %I*: INT;
++//	{attribute 'TcLinkTo' := 'TIID^EtherCAT Master^JB2^Term 18 (EL3124)^AI Standard Channel 3^Value'}
++//	AI_PortBPressure2 AT %I*: INT;
++
++
++	
++	
++	// ============================================================
++    // SAFETY VARIABLES
++    // ============================================================
++	
++	Safety_ResetA	AT %Q*: BOOL;
++	Safety_ErrAck 	AT %Q*: BOOL;
++	Safety_Run 		AT %Q*: BOOL;
++	
++	
++	Safety_ComError AT %I*: BOOL;
++	Safety_FBError 	AT %I*: BOOL;
++	Safety_OtherErr	AT %I*: BOOL;
++
++	Safety_I_EStopIsReset 	AT %I*: BOOL;
++	Safety_I_MachineIsReset	AT %I*: BOOL;
++	
++	Safety_I_EStopIsReset_B 	AT %I*: BOOL;
++	Safety_I_MachineIsReset_B	AT %I*: BOOL;
++	
++	Safety_HPP1AirStatus	AT %I*: BOOL;
++
++	I_EStop1A 	AT %I* : BOOL;
++	I_EStop1B 	AT %I*: BOOL;
++	
++	I_EStop2A 	AT %I* : BOOL;
++	I_EStop2B 	AT %I*: BOOL;
++	
++	bTsLowPressureA AT %Q* : BOOL;	
++	bTsSeperatorState	AT %I* : BOOL;
++	bOkForHighPressureA	AT %I* : BOOL;
++	//bLightCurtainState AT %I* : BOOL;
++	bAirCabDoor1State AT %I* : BOOL;
++	bSafetyScannerState AT %I* : BOOL;
++	bAbortSequence		: BOOL;
++
++
++	I_RedBeaconSideB	AT %I*: BOOL;
++	I_PressureOver1K		: BOOL;
++	I_PumpOut			AT %I*: BOOL;
++
++	O_Tank1SensorTeach	AT %Q*: BOOL;
++	
++	
++
++	
++
++	DesiredPressure			: LREAL;	
++
++	HeaderCurrentPSI		: LREAL;
++	PortACurrentPSI			: LREAL;
++	PortBCurrentPSI 		: LREAL;
++	
++	SystemPressure			: LREAL;
++	PressureSourceValid		: BOOL;
++	PressureDifference		: LREAL;
++	PressureMismatch		: BOOL;
++	
++			
++	HMI_HeaderCurrentPressureDrop		: REAL;	// ******HMI INPUT
++	HMI_PortACurrentPressureDrop 		: REAL;	// ******HMI INPUT
++	HMI_PortBCurrentPressureDrop 		: REAL;	// ******HMI INPUT
++	HMI_HeaderCurrentPressureDropHigh	: REAL;	// ******HMI INPUT
++	HMI_PortACurrentPressureDropHigh	: REAL;	// ******HMI INPUT
++	HMI_PortBCurrentPressureDropHigh	: REAL;	// ******HMI INPUT
++	HMI_HeaderCurrentPressureDropLow	: REAL;	// ******HMI INPUT
++	HMI_PortACurrentPressureDropLow		: REAL;	// ******HMI INPUT
++	HMI_PortBCurrentPressureDropLow		: REAL;	// ******HMI INPUT
++	
++	HMI_LightSwitch						: BOOL;	// ******HMI INPUT******************
++	HMI_EStopOK							: BOOL;	// ******HMI INPUT******************
++	HMI_DoorsOK							: BOOL; // ******HMI INPUT******************
++	HMI_Under1K							: BOOL;	// ******HMI INPUT******************
++	HMI_Under1K_B				AT %I*	: BOOL;	// ******HMI INPUT* and sends status to SideA
++	HMI_EStopReset						: BOOL; // ******HMI INPUT******************
++	HMI_TimeRemainingInTest				: DINT;	// ******HMI INPUT******************
++	HMI_ExecutedTestTime				: DINT;
++	HMI_Message							: STRING; // ******HMI INPUT******************
++	HMI_StateName						: STRING; // ******HMI INPUT******************
++	HMI_LowTestElapsedTime				: DINT;
++	HMI_HighTestElapsedTime				: DINT;
++	
++	HMI_DumpValveAStatus 				: BOOL; // ******HMI INPUT******************
++	HMI_DumpValveBStatus 				: BOOL;	// ******HMI INPUT******************
++	HMI_BleedValveAStatus 				: BOOL;	// ******HMI INPUT******************
++	HMI_BleedValveBStatus 				: BOOL;	// ******HMI INPUT******************
++	HMI_PortABlockValveStatus 			: BOOL;	// ******HMI INPUT******************
++	HMI_PortBBlockValveStatus 			: BOOL;	// ******HMI INPUT******************
++	HMI_PumpOnStatus 					: BOOL;	// ******HMI INPUT******************
++	
++//	HMI_TestComplete 					: BOOL;
++//	HMI_TestCycleComplete 				: BOOL;
++	
++	HMI_InCycle					 		: BOOL;	// ******HMI INPUT******************
++	HMI_TestingCompleted		 		: BOOL;	// ******HMI INPUT******************
++	HMI_CycleFinished					: BOOL;	// ******HMI INPUT******************
++	HMI_CycleCount						: INT;
++	
++	HMI_StartTest 						: BOOL; // HMI OUTPUT************************
++	HMI_StopTest 						: BOOL; // HMI OUTPUT************************
++	HMI_SaveTest 						: BOOL; // HMI OUTPUT************************
++	HMI_ReStartTestTime 				: BOOL; // HMI OUTPUT************************
++	HMI_ReStartTest 					: BOOL;	// HMI OUTPUT************************	
++	HMI_Continue	 					: BOOL;	// HMI OUTPUT************************
++	HMI_FinishTest		 				: BOOL;	// HMI OUTPUT************************
++	HMI_DepressurizeSystem 				: BOOL; // HMI OUTPUT************************
++	
++	HMI_GatheringData	 				: BOOL; // HMI OUTPUT************************
++	
++	HMI_ToggleDumpValveA 				: BOOL;	// HMI OUTPUT************************
++	HMI_ToggleDumpValveB 				: BOOL;	// HMI OUTPUT************************
++	HMI_ToggleBleedValveA 				: BOOL;	// HMI OUTPUT************************
++	HMI_ToggleBleedValveB 				: BOOL;	// HMI OUTPUT************************
++	HMI_TogglePortABlockValve 			: BOOL;	// HMI OUTPUT************************
++	HMI_TogglePortBBlockValve 			: BOOL;	// HMI OUTPUT************************
++	HMI_TogglePump 						: BOOL; // HMI OUTPUT************************
++	
++	HMI_HeaderPressureReading 			: REAL;	// ******HMI INPUT******************
++	HMI_PortAPressureReading 			: REAL;	// ******HMI INPUT******************
++	HMI_PortBPressureReading 			: REAL;	// ******HMI INPUT******************
++		
++	HMI_HeaderStartPressure				: REAL;	// ******HMI INPUT******************
++	HMI_PortAStartPressure 				: REAL;	// ******HMI INPUT******************
++	HMI_PortBStartPressure 				: REAL; // ******HMI INPUT******************
++	HMI_HeaderStartPressureHigh			: REAL;	// ******HMI INPUT******************
++	HMI_PortAStartPressureHigh			: REAL;	// ******HMI INPUT******************
++	HMI_PortBStartPressureHigh			: REAL; // ******HMI INPUT******************
++	HMI_HeaderStartPressureLow			: REAL;	// ******HMI INPUT******************
++	HMI_PortAStartPressureLow			: REAL;	// ******HMI INPUT******************
++	HMI_PortBStartPressureLow			: REAL; // ******HMI INPUT******************
++	
++	HMI_HeaderEndPressure 				: REAL;	// ******HMI INPUT******************
++	HMI_PortAEndPressure 				: REAL;	// ******HMI INPUT******************
++	HMI_PortBEndPressure 				: REAL;	// ******HMI INPUT******************
++	HMI_HeaderEndPressureHigh			: REAL;	// ******HMI INPUT******************
++	HMI_PortAEndPressureHigh			: REAL;	// ******HMI INPUT******************
++	HMI_PortBEndPressureHigh			: REAL;	// ******HMI INPUT******************
++	HMI_HeaderEndPressureLow			: REAL;	// ******HMI INPUT******************
++	HMI_PortAEndPressureLow				: REAL;	// ******HMI INPUT******************
++	HMI_PortBEndPressureLow				: REAL;	// ******HMI INPUT******************
++	
++	HMI_TestPressure					: DINT; // HMI OUTPUT************************
++	HMI_TestDuration					: DINT; // HMI OUTPUT************************
++	
++	HMI_ResetTransducers				: BOOL;
++	
++	HMI_ShearPressure					: INT;
++	HMI_ShearTime						: TIME;
++    HMI_ShearTimeText : STRING(20); // Display/export duration as mm:ss.
++	
++	HMI_LoadRecipe						: BOOL;
++	HMI_SaveRecipe						: BOOL;
++	HMI_SelectedRecipe 					: INT := 1;
++    HMI_EditRecipe 						: BOOL;
++	HMI_RecipeType						: STRING[250];
++
++	ActiveRecipe 						: ST_Recipe;
++	LoadedRecipe 						: ST_Recipe;
++    SelectedRecipe 						: INT := 1;
++    RecipeEdit 							: ST_Recipe;
++	ActiveWorkingPort 					: E_PortSelect;
++	PortA_Active 						: BOOL;
++	PortB_Active 						: BOOL;
++END_VAR
++
++VAR_GLOBAL CONSTANT;
++	
++	TRANSDUCER_FULL_SCALE_VALUE		: LREAL := 12500.0;
++	PumpSwapSetpoint				: LREAL := 1500.0;
++	
++	LOW_PUMP_RATIO					: LREAL := 28;
++	HIGH_PUMP_RATIO					: LREAL := 226.0;
++	MAX_AIR_PRESSURE				: LREAL := 100;
++	PSI_To_Bar_Constant				: LREAL := 	1;	//BAR Constant 0.0689475729;
++	MAX_LOW_PRESSURE_PSI			: LREAL := MAX_AIR_PRESSURE * LOW_PUMP_RATIO * 0.95;
++END_VAR
++
++VAR_GLOBAL RETAIN PERSISTENT
++	HEADER_TRANSDUCER_OFFSET 	: LREAL := 0.0;
++	PORTA_TRANSDUCER_OFFSET		: LREAL := 0.0;
++	PORTB_TRANSDUCER_OFFSET		: LREAL := 0.0;
++	HMI_MaxHosePSI				: LREAL; //Cust Request ability to enter these 2 values and compare against system pressure - use lowest as MAX system pressure
++	HMI_MaxCouplingPSI			: LREAL;
++	MAX_HIGH_PRESSURE_PSI		: LREAL := 12500;
++END_VAR
++
++VAR_GLOBAL PERSISTENT
++	Recipes : ARRAY[1..50] OF ST_Recipe;
++	PT : ARRAY[100..110] OF ST_AnalogInputs;
++END_VAR
++ ]]></Declaration>
++  </GVL>
+ </TcPlcObject>

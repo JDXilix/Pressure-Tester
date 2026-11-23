@@ -1,0 +1,43 @@
+--- PressureTester - 100ft Single v100/test/FrontSide/POUs/POUs/FB_FirstRampEventClassifier.TcPOU
++++ PressureTester - 100ft Single v100/test/FrontSide/POUs/POUs/FB_FirstRampEventClassifier.TcPOU
+@@ -6,6 +6,7 @@
+     Enable : BOOL;
+     Reset : BOOL;
+     RampActive : BOOL;
++    NormalVerificationEnable : BOOL := TRUE; // Handoff guard; severe collapse bypasses it.
+     PressureA : LREAL;
+     PressureB : LREAL;
+     PortAActive : BOOL;
+@@ -48,6 +49,7 @@
+     CandidateTimeSeconds : LREAL;
+     EventClassification : STRING(120);
+     Armed : BOOL;
++    VerificationSuppressed : BOOL;
+     SelectedPressure : LREAL;
+     CurrentDropPSI : LREAL;
+     DropRatePSIperSec : LREAL;
+@@ -120,6 +122,7 @@
+     CandidateTimeSeconds := 0.0;
+     EventClassification := '';
+     Armed := FALSE;
++    VerificationSuppressed := FALSE;
+     Initialized := FALSE;
+     Elapsed := 0.0;
+     ArmElapsed := 0.0;
+@@ -163,6 +166,7 @@
+ ELSE
+     SelectedPressure := FilteredB;
+ END_IF;
++VerificationSuppressed := Enable AND RampActive AND NOT NormalVerificationEnable;
+ CheckActive := Enable AND RampActive AND ((State = 10) OR Fault OR ReleaseConfirmed);
+ IF Enable AND RampActive THEN
+     CaptureActive := TRUE;
+@@ -260,7 +264,7 @@
+                 PostTraceSeconds := 0.0;
+             END_IF;
+         END_IF;
+-        IF DropThresholdCrossed THEN
++        IF DropThresholdCrossed AND (NormalVerificationEnable OR SevereDrop) THEN
+             DropElapsed := DropElapsed + CycleTimeSeconds;
+         ELSE
+             DropElapsed := 0.0;

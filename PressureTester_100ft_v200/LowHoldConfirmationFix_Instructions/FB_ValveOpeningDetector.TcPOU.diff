@@ -1,0 +1,181 @@
+--- PressureTester - 100ft Single v100/test/FrontSide/POUs/POUs/FB_ValveOpeningDetector.TcPOU
++++ PressureTester - 100ft Single v100/test/FrontSide/POUs/POUs/FB_ValveOpeningDetector.TcPOU
+@@ -46,7 +46,10 @@
+ END_VAR
+ VAR_OUTPUT
+     CandidateRejected : BOOL; // One-scan pulse; consumed by preceding ramp call next scan.
+-    CandidateFromRamp : BOOL;
++    CandidateFromRamp : BOOL;
++    CandidateFromLowHold : BOOL; // Latched origin of current candidate.
++    LowHoldVerificationClosedSeconds : LREAL; // Fresh closed-command coast after candidate.
++    EventCycleState : INT; // Candidate origin: 20 ramp, 30 high hold, 50 bleed, 60 low hold.
+     FastPressureA : LREAL;
+     FastPressureB : LREAL;
+     Candidate : BOOL;
+@@ -74,7 +77,12 @@
+     TracePressureB : ARRAY[0..399] OF LREAL;
+     TraceTimeSeconds : ARRAY[0..399] OF LREAL;
+     TraceCycleState : ARRAY[0..399] OF INT;
+-    TraceBleedOpen : ARRAY[0..399] OF BOOL;
++    TraceBleedOpen : ARRAY[0..399] OF BOOL;
++    TraceBleedOpenA : ARRAY[0..399] OF BOOL;
++    TraceBleedOpenB : ARRAY[0..399] OF BOOL;
++    TraceDumpsClosed : ARRAY[0..399] OF BOOL;
++    TracePumpOff : ARRAY[0..399] OF BOOL;
++    TraceDetectorState : ARRAY[0..399] OF INT;
+     TraceWriteIndex : UINT;
+     TraceCount : UINT;
+     EventTraceIndex : UINT; // Sample where confirmation was latched
+@@ -108,7 +116,8 @@
+     CandidatePressure : LREAL;
+     CandidateTime : LREAL;
+     CandidatePeakRate : LREAL;
+-    CandidateCycle : UINT;
++    CandidateCycle : UINT;
++    CandidateCycleState : INT;
+     BleedOpen : BOOL;
+     DropA : LREAL;
+     DropB : LREAL;
+@@ -164,7 +173,9 @@
+ 
+ IF NOT ExternalCandidate THEN ExternalCandidateConsumed := FALSE; END_IF;
+ IF Reset THEN
+-    CandidateFromRamp := FALSE; ExternalCandidateConsumed := FALSE;
++    CandidateFromRamp := FALSE; ExternalCandidateConsumed := FALSE;
++    CandidateFromLowHold := FALSE; LowHoldVerificationClosedSeconds := 0.0;
++    EventCycleState := 0; CandidateCycleState := 0;
+     RampPeakPSI := SelectedPressure; RampPeakA := FilteredA; RampPeakB := FilteredB;
+     Candidate := FALSE; CloseBleedRequest := FALSE; Detected := FALSE; State := 0;
+     EventCycle := 0; EventPressurePSI := 0.0; EventTimeSeconds := 0.0;
+@@ -182,14 +193,16 @@
+ END_IF;
+ IF CycleTimeSeconds <= 0.0 THEN RETURN; END_IF;
+ Elapsed := Elapsed + CycleTimeSeconds;
+-IF InputFault THEN
++IF InputFault THEN
++    CandidateFromLowHold := FALSE; LowHoldVerificationClosedSeconds := 0.0;
+     CandidateQualifySamples := 0; BleedOpenElapsed := 0.0; BleedStartupActive := FALSE;
+     Candidate := FALSE; CloseBleedRequest := FALSE;
+     IF NOT Detected THEN State := 0; END_IF;
+     SamplingInitialized := FALSE; SampleElapsed := 0.0;
+     RETURN;
+ END_IF;
+-IF NOT Enable AND NOT Detected THEN
++IF NOT Enable AND NOT Detected THEN
++    CandidateFromLowHold := FALSE; LowHoldVerificationClosedSeconds := 0.0;
+     CandidateQualifySamples := 0; BleedOpenElapsed := 0.0; BleedStartupActive := FALSE;
+     Candidate := FALSE; CloseBleedRequest := FALSE; State := 0;
+     SamplingInitialized := FALSE; SampleElapsed := 0.0;
+@@ -203,7 +216,8 @@
+ IF NOT RampPhase THEN
+     RampPeakPSI := SelectedPressure; RampPeakA := FilteredA; RampPeakB := FilteredB;
+ END_IF;
+-IF NOT Qualify AND NOT Detected THEN
++IF NOT Qualify AND NOT Detected THEN
++    CandidateFromLowHold := FALSE; LowHoldVerificationClosedSeconds := 0.0;
+     CandidateQualifySamples := 0;
+     Candidate := FALSE; CloseBleedRequest := FALSE; State := 0;
+ END_IF;
+@@ -221,7 +235,17 @@
+ ELSE ClosedElapsed := ClosedElapsed + CycleTimeSeconds; END_IF;
+ RetryRemaining := MAX(0.0, RetryRemaining - CycleTimeSeconds);
+ IF (RetryRemaining > 0.0) OR (State <> 0) THEN CandidateQualifySamples := 0; END_IF;
+-IF State = 10 THEN VerifyElapsed := VerifyElapsed + CycleTimeSeconds; END_IF;
++IF State = 10 THEN VerifyElapsed := VerifyElapsed + CycleTimeSeconds; END_IF;
++// Low-hold confirmation must use a NEW coast interval after the candidate.
++// Time already spent with bleed closed during the hold must not count.
++IF (State = 10) AND CandidateFromLowHold AND Qualify AND PumpOff AND NOT BleedOpen THEN
++    LowHoldVerificationClosedSeconds := LowHoldVerificationClosedSeconds + CycleTimeSeconds;
++ELSE
++    LowHoldVerificationClosedSeconds := 0.0;
++    IF (State = 10) AND CandidateFromLowHold THEN
++        CoastReferenceSet := FALSE; CoastReferenceElapsed := 0.0;
++    END_IF;
++END_IF;
+ IF CoastReferenceSet THEN CoastReferenceElapsed := CoastReferenceElapsed + CycleTimeSeconds; END_IF;
+ SampleElapsed := SampleElapsed + CycleTimeSeconds;
+ IF (SampleElapsed + 0.000000001) < SampleSeconds THEN RETURN; END_IF;
+@@ -239,7 +263,12 @@
+     TracePressureA[TraceWriteIndex] := FilteredA; TracePressureB[TraceWriteIndex] := FilteredB;
+     TraceTimeSeconds[TraceWriteIndex] := Elapsed;
+     TraceCycleState[TraceWriteIndex] := CycleState;
+-    TraceBleedOpen[TraceWriteIndex] := BleedOpen;
++    TraceBleedOpen[TraceWriteIndex] := BleedOpen;
++    TraceBleedOpenA[TraceWriteIndex] := BleedOpenA;
++    TraceBleedOpenB[TraceWriteIndex] := BleedOpenB;
++    TraceDumpsClosed[TraceWriteIndex] := DumpsClosed;
++    TracePumpOff[TraceWriteIndex] := PumpOff;
++    TraceDetectorState[TraceWriteIndex] := State;
+     TraceWriteIndex := (TraceWriteIndex + 1) MOD 400;
+     IF TraceCount < 400 THEN TraceCount := TraceCount + 1; END_IF;
+ END_IF;
+@@ -282,7 +311,10 @@
+     Trigger := ImmediateCollapse OR (RateCandidateRaw
+         AND (CandidateQualifySamples >= CandidateConsecutiveSamples));
+     IF Trigger THEN
+-        CandidateFromRamp := FALSE;
++        CandidateFromRamp := FALSE;
++        CandidateFromLowHold := CycleState = 60;
++        CandidateCycleState := CycleState;
++        LowHoldVerificationClosedSeconds := 0.0;
+         Candidate := TRUE; CloseBleedRequest := TRUE; State := 10;
+         VerifyElapsed := 0.0; CoastReferenceSet := FALSE; CoastReferenceElapsed := 0.0;
+         IF ImmediateCollapse AND (CandidateQualifySamples = 0) THEN
+@@ -317,7 +349,8 @@
+         AND (NOT PortBActive OR ((RampPeakB - FilteredB >= (CoastAllowancePSI + ConfirmDropPSI))
+             AND (FilteredB < (LowPressureMin - CollapseBelowLowPSI))));
+     IF (RetryRemaining <= 0.0) AND ((ExternalCandidate AND NOT ExternalCandidateConsumed) OR RampCollapse) THEN
+-        Candidate := TRUE; CandidateFromRamp := TRUE;
++        Candidate := TRUE; CandidateFromRamp := TRUE;
++        CandidateFromLowHold := FALSE; CandidateCycleState := CycleState;
+         CloseBleedRequest := TRUE; State := 10;
+         VerifyElapsed := 0.0; CoastReferenceSet := FALSE; CoastReferenceElapsed := 0.0;
+         // The bleed commands were already closed during ramping. Start a fresh coast
+@@ -340,34 +373,41 @@
+ 
+ IF Qualify AND PumpOff AND (State = 10) THEN
+     CandidatePeakRate := MAX(CandidatePeakRate, DropRatePSIperSec);
+-    LargeCollapse := NOT BleedOpen
++    // A low-hold collapse is a CANDIDATE only; never a shortcut to a pass.
++    LargeCollapse := NOT CandidateFromLowHold AND NOT BleedOpen
+         AND (CandidatePressure - SelectedPressure >= (CoastAllowancePSI + ConfirmDropPSI))
+         AND (SelectedPressure < (LowPressureMin - CollapseBelowLowPSI))
+         AND (NOT PortAActive OR ((CandidateStartA - FilteredA >= (CoastAllowancePSI + ConfirmDropPSI))
+             AND (FilteredA < (LowPressureMin - CollapseBelowLowPSI))))
+         AND (NOT PortBActive OR ((CandidateStartB - FilteredB >= (CoastAllowancePSI + ConfirmDropPSI))
+             AND (FilteredB < (LowPressureMin - CollapseBelowLowPSI))));
+-    IF NOT BleedOpen AND (ClosedElapsed >= CoastSeconds) AND NOT CoastReferenceSet THEN
++    IF NOT BleedOpen AND NOT CoastReferenceSet
++        AND ((CandidateFromLowHold AND (LowHoldVerificationClosedSeconds >= CoastSeconds))
++            OR (NOT CandidateFromLowHold AND (ClosedElapsed >= CoastSeconds))) THEN
+         CoastReferenceA := FilteredA; CoastReferenceB := FilteredB; CoastReferenceSet := TRUE; CoastReferenceElapsed := 0.0;
+         // Verification starts after the actual closure/coast, not the request scan.
+     END_IF;
+-    ContinuedRelease := CoastReferenceSet AND NOT BleedOpen
++    ContinuedRelease := CoastReferenceSet AND NOT BleedOpen
++        AND (NOT CandidateFromLowHold OR (LowHoldVerificationClosedSeconds >= CoastSeconds))
+         AND (CoastReferenceElapsed >= ConfirmSeconds)
+         AND (DropRatePSIperSec >= ConfirmRatePSIperSec)
+         AND (NOT PortAActive OR (CoastReferenceA - FilteredA >= ConfirmDropPSI))
+         AND (NOT PortBActive OR (CoastReferenceB - FilteredB >= ConfirmDropPSI));
+     IF LargeCollapse OR ContinuedRelease THEN
+         Detected := TRUE; Candidate := FALSE; CloseBleedRequest := TRUE; State := 100;
+-        EventCycle := CandidateCycle; EventPressurePSI := CandidatePressure;
++        EventCycle := CandidateCycle; EventPressurePSI := CandidatePressure;
++        EventCycleState := CandidateCycleState;
+         EventTimeSeconds := CandidateTime; EventPeakRatePSIperSec := CandidatePeakRate;
+         ConfirmPressurePSI := SelectedPressure;
+-        IF LargeCollapse THEN DetectionReason := 'Pressure collapsed below low range beyond coast allowance';
++        IF CandidateFromLowHold THEN DetectionReason := 'Low hold: continued pressure loss after fresh closed-command coast';
++        ELSIF LargeCollapse THEN DetectionReason := 'Pressure collapsed below low range beyond coast allowance';
+         ELSE DetectionReason := 'Pressure continued falling after commanded bleed closure and coast'; END_IF;
+         EventTraceIndex := (TraceWriteIndex + 399) MOD 400;
+         PostCaptureRemaining := 2.0;
+     ELSIF VerifyElapsed >= VerificationTimeoutSeconds THEN
+         Candidate := FALSE; CloseBleedRequest := FALSE; State := 0;
+-        CandidateRejected := TRUE; CandidateFromRamp := FALSE;
++        CandidateRejected := TRUE; CandidateFromRamp := FALSE;
++        CandidateFromLowHold := FALSE; LowHoldVerificationClosedSeconds := 0.0;
+         RampPeakPSI := SelectedPressure; RampPeakA := FilteredA; RampPeakB := FilteredB;
+         RetryRemaining := RetrySeconds;
+     END_IF;

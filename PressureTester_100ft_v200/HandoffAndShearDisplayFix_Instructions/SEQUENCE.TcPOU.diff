@@ -1,0 +1,121 @@
+--- PressureTester - 100ft Single v100/test/FrontSide/POUs/POUs/SEQUENCE.TcPOU
++++ PressureTester - 100ft Single v100/test/FrontSide/POUs/POUs/SEQUENCE.TcPOU
+@@ -14,6 +14,10 @@
+ 	fbShearTest				: FB_ShearTest;
+     fbFirstRampEvent : FB_FirstRampEventClassifier;
+     CycleFirstRampActive : BOOL;
++    tFirstRampHandoffSettled : TON;
++    ShearDisplayTotalSeconds : UDINT;
++    ShearDisplayMinutes : UDINT;
++    ShearDisplaySeconds : UDINT;
+ 	fbVPPMHigh				: FB_VPPMPID;
+ 	fbVPPMLow				: FB_VPPMPID;
+ 	fbCycleRampShear 		: FB_ShearTest;
+@@ -175,13 +179,20 @@
+     AND (NOT PortB_Active OR ((PT[102].RawMax > PT[102].RawMin)
+     AND NOT MAIN.PortBPressureFB.OverRange AND (MAIN.PortBPressureFB.RawPSI >= -100.0)))
+     AND (PortA_Active OR PortB_Active);
++// Guard ordinary verification across the low/high regulator handoff.
++// Trace observation and severe-collapse verification remain available.
++tFirstRampHandoffSettled(
++    IN := CycleFirstRampActive AND CycleRampSignalValid
++        AND (SystemPressure > (PumpSwapSetpoint + 200.0)),
++    PT := T#500MS);
++
+ // Separate first-ramp candidate capture from later-cycle opening detection.
+ fbFirstRampEvent(
+     Enable := (state = 600) AND NOT bAbortSequence AND NOT HMI_StopTest
+         AND HMI_EStopOK AND Safety_HPP1AirStatus AND NOT PumpManualCmd,
+-    Reset := (state = 100) OR ((state = 600) AND (fbCyclePressureTest.State = 0))
+-        OR bAbortSequence OR HMI_StopTest,
++    Reset := (state = 100) OR ((state = 600) AND (fbCyclePressureTest.State = 0)),
+     RampActive := CycleFirstRampActive,
++    NormalVerificationEnable := tFirstRampHandoffSettled.Q,
+     PressureA := MAIN.PortAPressureFB.RawPSI,
+     PressureB := MAIN.PortBPressureFB.RawPSI,
+     PortAActive := PortA_Active,
+@@ -192,6 +203,15 @@
+     SensorDataValid := CycleRampSignalValid,
+     CycleTimeSeconds := 0.005
+ );
++
++// Report mapping for a classified POSSIBLE shear (not trace-only observations).
++IF state = 100 THEN
++    HMI_ShearPressure := 0;
++    HMI_ShearTime := T#0S;
++ELSIF (state = 600) AND fbFirstRampEvent.PossibleShearCaptured THEN
++    HMI_ShearPressure := LREAL_TO_INT(fbFirstRampEvent.ShearPressurePSI);
++    HMI_ShearTime := LREAL_TO_TIME(fbFirstRampEvent.ShearTimeSeconds * 1000.0);
++END_IF;
+ 
+ tCycleRampStartup(
+     IN := CycleRampPhase AND CycleRampSignalValid AND fbCyclePressureTest.Pump
+@@ -582,7 +602,7 @@
+ 		ShearTestActive := TRUE;
+ 		CurrentTargetPressure := LoadedRecipe.ShearTestPressure;
+ 		CurrentTestDuration := LoadedRecipe.ShearMaxTestTime;
+-		HMI_ShearPressure := 0.0;
++		HMI_ShearPressure := 0;
+ 		HMI_ShearTime := T#0S;
+ 		state := 110;
+ 	
+@@ -766,7 +786,7 @@
+ 	DesiredPressure := CurrentTargetPressure;
+ 	SequenceActive := TRUE;
+ 	IF ShearTestActive AND fbShearTest.Done THEN
+-		HMI_ShearPressure := LREAL_TO_REAL(fbShearTest.ShearPressure);
++		HMI_ShearPressure := LREAL_TO_INT(fbShearTest.ShearPressure);
+ 		HMI_ShearTime := fbShearTest.ShearTime;
+ 		TestPeakPress := fbShearTest.ShearTime;
+ 	TestPassed := TRUE;
+@@ -792,7 +812,7 @@
+ 	HMI_Message := 'Waiting for Pressure to Stabilize';
+ 	
+ 	IF ShearTestActive AND fbShearTest.Done THEN
+-		HMI_ShearPressure := LREAL_TO_REAL(fbShearTest.ShearPressure);
++		HMI_ShearPressure := LREAL_TO_INT(fbShearTest.ShearPressure);
+ 		HMI_ShearTime := fbShearTest.ShearTime;
+ 		TestPassed := TRUE;
+ //		state := 800;
+@@ -957,7 +977,7 @@
+ 	//******************
+ 	// Live values
+ 	//******************
+-	HMI_ShearPressure := LREAL_TO_REAL(fbShearTest.PeakPressure);
++	HMI_ShearPressure := LREAL_TO_INT(fbShearTest.PeakPressure);
+ 	HMI_ExecutedTestTime := TIME_TO_DINT(fbShearTest.ElapsedTime);
+ 	
+ 
+@@ -982,7 +1002,7 @@
+ 	// Shear detected
+ 	//******************
+ 	ELSIF fbShearTest.Done THEN
+-		HMI_ShearPressure := LREAL_TO_REAL(fbShearTest.ShearPressure);
++		HMI_ShearPressure := LREAL_TO_INT(fbShearTest.ShearPressure);
+ 		HMI_ShearTime := fbShearTest.ShearTime;
+ 		TestPassed := TRUE;
+ 		HMI_Message := 'Shear Event Detected';
+@@ -1214,7 +1234,22 @@
+ 	ELSE
+ 		DesiredPressure := 0.0;
+ 	END_IF
+-END_IF]]></ST>
++END_IF;
++
++// Preserve TIME for calculations; expose a separate formatted display/export tag.
++ShearDisplayTotalSeconds := TIME_TO_UDINT(HMI_ShearTime) / 1000;
++ShearDisplayMinutes := ShearDisplayTotalSeconds / 60;
++ShearDisplaySeconds := ShearDisplayTotalSeconds MOD 60;
++HMI_ShearTimeText := UDINT_TO_STRING(ShearDisplayMinutes);
++IF ShearDisplayMinutes < 10 THEN
++    HMI_ShearTimeText := CONCAT('0', HMI_ShearTimeText);
++END_IF;
++HMI_ShearTimeText := CONCAT(HMI_ShearTimeText, ':');
++IF ShearDisplaySeconds < 10 THEN
++    HMI_ShearTimeText := CONCAT(HMI_ShearTimeText, '0');
++END_IF;
++HMI_ShearTimeText := CONCAT(HMI_ShearTimeText, UDINT_TO_STRING(ShearDisplaySeconds));
++]]></ST>
+     </Implementation>
+     <LineIds Name="SEQUENCE">
+       <LineId Id="2357" Count="2" />
